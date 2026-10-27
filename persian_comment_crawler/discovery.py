@@ -4,6 +4,10 @@ import re
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable
 from html.parser import HTMLParser
+import json
+import os
+import urllib.parse
+import urllib.request
 from urllib.parse import urljoin, urlsplit
 
 
@@ -61,3 +65,53 @@ def discovery_candidates(page_url: str, response_text: str, content_type: str = 
     domain = (urlsplit(page_url).hostname or "").lower()
     for url in extract_html_links(response_text, page_url, domain):
         yield url, "internal-link", 50
+
+
+class SearchProvider:
+    """Optional provider contract for permitted search APIs."""
+
+    name = "none"
+
+    def search(self, query: str, limit: int = 20) -> list[str]:
+        return []
+
+
+class BingSearchProvider(SearchProvider):
+    """Use Bing Web Search only when the user supplies an API key.
+
+    The crawler never scrapes a search-results page. This provider calls the
+    documented JSON endpoint and remains disabled when the key is absent.
+    """
+
+    name = "bing-api"
+
+    def __init__(self, api_key: str | None = None, endpoint: str | None = None) -> None:
+        self.api_key = api_key or os.environ.get("BING_SEARCH_API_KEY", "")
+        self.endpoint = endpoint or os.environ.get("BING_SEARCH_ENDPOINT", "https://api.bing.microsoft.com/v7.0/search")
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.api_key)
+
+    def search(self, query: str, limit: int = 20) -> list[str]:
+        if not self.enabled:
+            return []
+        params = urllib.parse.urlencode({"q": query, "count": max(1, min(limit, 50)), "responseFilter": "Webpages"})
+        request = urllib.request.Request(f"{self.endpoint}?{params}", headers={"Ocp-Apim-Subscription-Key": self.api_key, "Accept": "application/json", "User-Agent": "PersianCommentCrawler/0.1"})
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                data = json.loads(response.read(2_000_000).decode("utf-8", errors="replace"))
+        except Exception:
+            return []
+        values = data.get("webPages", {}).get("value", []) if isinstance(data, dict) else []
+        return list(dict.fromkeys(item.get("url", "") for item in values if isinstance(item, dict) and item.get("url", "").startswith(("http://", "https://"))))
+
+
+def default_search_queries() -> tuple[str, ...]:
+    return (
+        '"نظرات کاربران"',
+        '"دیدگاه کاربران"',
+        '"پاسخ به دیدگاه"',
+        '"ثبت دیدگاه"',
+        '"Comments" "Reviews" Persian',
+    )

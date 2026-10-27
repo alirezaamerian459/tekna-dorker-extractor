@@ -21,4 +21,5 @@ class StorageExportTests(unittest.TestCase):
             files = TxtExporter(store, config).export("example.ir")
             self.assertTrue(files)
             self.assertTrue(files[0].read_text(encoding="utf-8").startswith("="))
+            self.assertEqual(TxtExporter(store, config).export("example.ir", only_new=True), [])
             store.close()

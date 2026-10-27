@@ -35,3 +35,9 @@ CREATE TABLE IF NOT EXISTS comments (
   language_confidence REAL NOT NULL,
   source_context TEXT
 );
+
+CREATE TABLE IF NOT EXISTS exported_records (
+  record_id TEXT PRIMARY KEY,
+  exported_at TEXT NOT NULL,
+  output_path TEXT NOT NULL
+);

@@ -33,17 +33,17 @@ class TxtExporter:
         return outputs
 
     def _was_exported(self, record_id: str) -> bool:
-        # Export history is deliberately conservative. A record is considered
-        # exported only when it appears in a completed file tracked by the app.
-        return False
+        return self.store.was_exported(record_id)
 
     def _export_domain(self, domain: str, records: list[Row]) -> list[Path]:
         directory = self.store.comments_dir / safe_domain_name(domain)
         directory.mkdir(parents=True, exist_ok=True)
         outputs: list[Path] = []
+        written_chunks: list[tuple[Path, list[Row]]] = []
         rotation = self.config.export_rotation_bytes
         part = 1
         current: list[str] = []
+        current_rows: list[Row] = []
         current_size = 0
 
         def flush(lines: list[str], part_number: int) -> Path:
@@ -75,16 +75,22 @@ class TxtExporter:
             if current and current_size + block_size > rotation:
                 target = flush(current, part)
                 outputs.append(target)
+                written_chunks.append((target, current_rows))
                 part += 1
-                current, current_size = [], 0
+                current, current_rows, current_size = [], [], 0
             current.append(block)
+            current_rows.append(row)
             current_size += block_size
         if current:
-            outputs.append(flush(current, part))
+            target = flush(current, part)
+            outputs.append(target)
+            written_chunks.append((target, current_rows))
 
-        for path in outputs:
+        for path, chunk_rows in written_chunks:
             with self.store.transaction() as db:
-                db.execute("INSERT INTO exports(exported_at,domain,output_path,comment_count,bytes_written) VALUES(?,?,?,?,?)", (self._now(), domain, str(path), len(records), path.stat().st_size))
+                db.execute("INSERT INTO exports(exported_at,domain,output_path,comment_count,bytes_written) VALUES(?,?,?,?,?)", (self._now(), domain, str(path), len(chunk_rows), path.stat().st_size))
+                for row in chunk_rows:
+                    db.execute("INSERT OR IGNORE INTO exported_records(record_id,exported_at,output_path) VALUES(?,?,?)", (row["record_id"], self._now(), str(path)))
         return outputs
 
     @staticmethod

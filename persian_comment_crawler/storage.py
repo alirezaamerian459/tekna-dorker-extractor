@@ -53,6 +53,9 @@ CREATE TABLE IF NOT EXISTS exports (
   id INTEGER PRIMARY KEY AUTOINCREMENT, exported_at TEXT NOT NULL, domain TEXT,
   output_path TEXT NOT NULL, comment_count INTEGER NOT NULL, bytes_written INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS exported_records (
+  record_id TEXT PRIMARY KEY, exported_at TEXT NOT NULL, output_path TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS storage_accounting (
   session_id INTEGER PRIMARY KEY, bytes_written INTEGER NOT NULL DEFAULT 0,
   last_measured_at TEXT NOT NULL
@@ -245,3 +248,7 @@ class SQLiteStore:
             if domain:
                 return list(self._connection.execute("SELECT * FROM comments WHERE domain=? ORDER BY discovered_at", (domain,)))
             return list(self._connection.execute("SELECT * FROM comments ORDER BY discovered_at"))
+
+    def was_exported(self, record_id: str) -> bool:
+        with self._lock:
+            return self._connection.execute("SELECT 1 FROM exported_records WHERE record_id=?", (record_id,)).fetchone() is not None
