@@ -186,6 +186,24 @@ class SQLiteStore:
         with self._lock:
             return self._connection.execute("SELECT 1 FROM discovered_urls WHERE status='pending' LIMIT 1").fetchone() is not None
 
+    def domain_page_count(self, domain: str) -> int:
+        """Count claimed URLs for a domain, including active work."""
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT COUNT(*) FROM discovered_urls WHERE domain=? AND status IN ('active','done','error','skipped')",
+                (domain,),
+            ).fetchone()
+            return int(row[0])
+
+    def skip_pending_domain(self, domain: str, reason: str) -> int:
+        """Stop queued expansion for a domain after its budget is exhausted."""
+        with self.transaction() as db:
+            cur = db.execute(
+                "UPDATE discovered_urls SET status='skipped',visited_at=?,last_error=? WHERE domain=? AND status='pending'",
+                (utc_now(), reason[:300], domain),
+            )
+            return int(cur.rowcount)
+
     def requeue_incomplete_urls(self, max_retries: int = 2) -> int:
         with self.transaction() as db:
             cur = db.execute("UPDATE discovered_urls SET status='pending' WHERE status='active' OR (status='error' AND attempts <= ?)", (max(0, max_retries),))

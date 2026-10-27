@@ -30,6 +30,8 @@ class CrawlConfig:
     max_retries: int = 2
     max_response_bytes: int = 4_000_000
     max_pages_per_domain: int = 250
+    low_yield_domain_pages: int = 30
+    max_links_per_page: int = 30
     max_discovered_urls: int = 20_000
     export_rotation_bytes: int = 50_000_000
     user_agent: str = "PersianCommentCrawler/0.1 (+public-research; contact: local-user)"
@@ -44,6 +46,9 @@ class CrawlConfig:
         self.max_retries = max(0, min(int(self.max_retries), 8))
         self.search_results_per_query = max(1, min(int(self.search_results_per_query), 50))
         self.maximum_comments = max(1, int(self.maximum_comments))
+        self.max_pages_per_domain = max(1, min(int(self.max_pages_per_domain), 1_000))
+        self.low_yield_domain_pages = max(0, min(int(self.low_yield_domain_pages), self.max_pages_per_domain))
+        self.max_links_per_page = max(5, min(int(self.max_links_per_page), 200))
         self.storage_limit_bytes = max(1_000_000, int(self.storage_limit_bytes))
         self.minimum_free_disk_bytes = max(0, int(self.minimum_free_disk_bytes))
         self.data_root = Path(self.data_root).expanduser()

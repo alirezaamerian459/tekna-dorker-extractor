@@ -11,6 +11,11 @@ import urllib.request
 from urllib.parse import urljoin, urlsplit
 
 
+NON_HTML_EXTENSIONS = (".7z", ".avi", ".csv", ".doc", ".docx", ".gif", ".gz", ".jpeg", ".jpg", ".m4a", ".mkv", ".mov", ".mp3", ".mp4", ".pdf", ".png", ".ppt", ".pptx", ".rar", ".svg", ".tar", ".webm", ".webp", ".xls", ".xlsx", ".xml.zip", ".zip")
+LOW_VALUE_PATH_PARTS = {"amp", "archive", "author", "category", "feed", "login", "page", "register", "search", "tag", "tags", "wp-admin", "wp-json"}
+HIGH_VALUE_PATH_PARTS = {"article", "articles", "blog", "news", "post", "posts", "review", "reviews", "single", "single-tracks"}
+
+
 class FeedLinkParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -29,6 +34,20 @@ def same_domain(url: str, domain: str) -> bool:
     return hostname == domain or hostname.endswith(f".{domain}")
 
 
+def link_priority(url: str, default: int = 50) -> int | None:
+    """Return a crawl priority, or None for a known non-HTML asset."""
+    parts = urlsplit(url)
+    path = parts.path.lower()
+    if path.endswith(NON_HTML_EXTENSIONS) or parts.query.lower().startswith(("replytocom=", "amp=1")):
+        return None
+    segments = {segment for segment in path.split("/") if segment}
+    if segments & LOW_VALUE_PATH_PARTS:
+        return 80
+    if segments & HIGH_VALUE_PATH_PARTS:
+        return 30
+    return default
+
+
 def extract_html_links(html: str, base_url: str, domain: str | None = None) -> list[str]:
     parser = FeedLinkParser()
     try:
@@ -36,7 +55,7 @@ def extract_html_links(html: str, base_url: str, domain: str | None = None) -> l
     except Exception:
         return []
     links = [urljoin(base_url, link) for link in parser.links]
-    return list(dict.fromkeys(link for link in links if urlsplit(link).scheme in {"http", "https"} and (not domain or same_domain(link, domain))))
+    return list(dict.fromkeys(link for link in links if urlsplit(link).scheme in {"http", "https"} and link_priority(link) is not None and (not domain or same_domain(link, domain))))
 
 
 def extract_sitemap_urls(xml_text: str) -> list[str]:
@@ -61,10 +80,14 @@ def discovery_candidates(page_url: str, response_text: str, content_type: str = 
     content_type = content_type.lower()
     if "xml" in content_type or page_url.lower().endswith((".xml", "sitemap")):
         for url in extract_sitemap_urls(response_text):
-            yield url, "sitemap-or-feed", 20
+            priority = link_priority(url, 20)
+            if priority is not None:
+                yield url, "sitemap-or-feed", priority
     domain = (urlsplit(page_url).hostname or "").lower()
     for url in extract_html_links(response_text, page_url, domain):
-        yield url, "internal-link", 50
+        priority = link_priority(url)
+        if priority is not None:
+            yield url, "internal-link", priority
 
 
 class SearchProvider:

@@ -17,6 +17,7 @@ Tkinter GUI -> CrawlEngine -> UrlFetcher -> HTML extractor
 - `engine.py` checks `robots.txt` before every page, uses a descriptive user agent, applies domain cooldowns, bounds response size and queue size, and never rotates identities or proxies.
 - `storage.py` owns the managed data root, checks both the session allowance and minimum free disk space, and writes checkpoints atomically.
 - `exporter.py` sanitizes domain directory names and rotates UTF-8 output without overwriting an existing export.
+- `config.py` bounds per-page link expansion and per-domain crawl budgets so internal-link discovery cannot grow without limit.
 
 ## Persistence
 
@@ -27,3 +28,5 @@ SQLite uses WAL mode and explicit transactions. The `comments.record_id` hash is
 `discovery.py` handles manual seeds, internal links, XML sitemaps, RSS, Atom-style feeds, Tranco's public daily popularity ranking, a no-key Common Crawl URL Index provider, and an optional Bing JSON API provider. The built-in `.ir` mode filters every provider result to the `.ir` ccTLD. Tranco candidates receive the highest crawl priority, Common Crawl provides archival coverage, and the optional live provider adds fresher results. Other search APIs, public directories, and dataset imports should implement the same provider contract; credentials and provider-specific terms stay outside the core crawler.
 
 `render.py` is an optional Playwright adapter. It is not used automatically and has no authentication, CAPTCHA, download, or proxy behavior.
+
+Comment extraction applies a noise filter before persistence. Structured `Comment` data and explicit comment-body fields are preferred; common controls, dates, reply counters, and empty-comment prompts are rejected. Internal links receive a path-aware priority, and domains with no valid comments after the low-yield threshold have their queued expansion skipped.

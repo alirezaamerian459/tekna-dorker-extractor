@@ -41,6 +41,9 @@ class CrawlEngine:
         self._executor: ThreadPoolExecutor | None = None
         self._robot_cache: dict[str, RobotFileParser | None] = {}
         self._last_domain_request: dict[str, float] = defaultdict(float)
+        self._domain_pages: dict[str, int] = defaultdict(int)
+        self._domain_comment_pages: dict[str, int] = defaultdict(int)
+        self._domain_stats_lock = threading.RLock()
         self._state_lock = threading.RLock()
         self._started_at = 0.0
 
@@ -261,6 +264,13 @@ class CrawlEngine:
             self.emit("activity", f"Skipped non-HTML asset: {url}")
             return
         domain = (urlsplit(url).hostname or "").lower()
+        # The claimed URL is already counted as active, so allow exactly the
+        # configured maximum and reject only the next page.
+        if self.store.domain_page_count(domain) > self.config.max_pages_per_domain:
+            self.store.complete_url(url, status="skipped")
+            self.store.record_attempt(url, "domain-limit", 0, True, "domain page limit reached")
+            self.emit("activity", f"Skipped domain page limit: {url}")
+            return
         elapsed = time.monotonic() - self._last_domain_request[domain]
         if elapsed < self.config.domain_cooldown_seconds:
             time.sleep(self.config.domain_cooldown_seconds - elapsed)
@@ -303,7 +313,8 @@ class CrawlEngine:
                     break
                 if self.store.save_comment(CommentRecord(item.text, url, domain, item.comment_url, item.publication_date, item.method, item.confidence, item.platform_id)):
                     new_comments += 1
-        for discovered, source, priority in discovery_candidates(url, text, result.content_type):
+        candidates = sorted(discovery_candidates(url, text, result.content_type), key=lambda item: item[2])
+        for discovered, source, priority in candidates[: self.config.max_links_per_page]:
             if self.store.count("discovered_urls") >= self.config.max_discovered_urls:
                 break
             try:
@@ -315,6 +326,19 @@ class CrawlEngine:
         self.store.complete_url(url)
         self.stats.processed_pages += 1
         self.stats.pages_with_comments += int(bool(page.comments))
+        with self._domain_stats_lock:
+            self._domain_pages[domain] += 1
+            self._domain_comment_pages[domain] += int(bool(page.comments))
+            domain_pages = self._domain_pages[domain]
+            domain_comment_pages = self._domain_comment_pages[domain]
+        if domain_pages >= self.config.max_pages_per_domain:
+            skipped = self.store.skip_pending_domain(domain, "domain page limit reached")
+            if skipped:
+                self.emit("activity", f"Stopped expansion for {domain} after {domain_pages} pages")
+        elif self.config.low_yield_domain_pages and domain_pages >= self.config.low_yield_domain_pages and domain_comment_pages == 0:
+            skipped = self.store.skip_pending_domain(domain, "low comment yield domain")
+            if skipped:
+                self.emit("activity", f"Stopped low-yield domain {domain} after {domain_pages} pages")
         self.stats.discovered_websites = self.store.count("domains")
         self.stats.unique_comments = self.store.count("comments")
         self.stats.storage_bytes = self.store.budget.usage()

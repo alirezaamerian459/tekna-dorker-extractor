@@ -11,6 +11,8 @@ The application starts in Safe Test Mode:
 | Minimum free disk space | 10 GB |
 | Maximum comments | 5,000 |
 | Concurrent requests | 2 |
+| Links queued per page | 30 |
+| Low-yield domain cutoff | 30 pages |
 | TXT export | Manual |
 | Recovery checkpoint | Enabled |
 
@@ -40,6 +42,8 @@ To build a Windows executable after installing PyInstaller:
 - Includes automatic `.ir` discovery with a high-yield path: it first prioritizes popular `.ir` domains from Tranco's daily public ranking, then adds archival Common Crawl URLs and optional authorized Bing Web Search results. Manual seeds remain optional.
 - Checks robots.txt, uses a descriptive user agent, applies domain cooldowns, and rejects non-HTTP(S), embedded-credential, private, loopback, link-local, reserved, and multicast targets.
 - Detects semantic comment structures, WordPress-style classes, reviews, replies, and Schema.org JSON-LD comments.
+- Rejects common comment-widget noise such as reply controls, dates, counters, and "first comment" placeholders before saving.
+- Prioritizes article/news links, skips known assets and low-value navigation, caps link expansion per page, and stops expanding domains that produce no valid comments.
 - Normalizes Persian/Arabic Unicode variants while preserving the original comment text.
 - Deduplicates comments with platform IDs when available and provenance-aware hashes otherwise.
 - Keeps Start, Pause, Resume, Stop, and Emergency stop available from the desktop UI.

@@ -18,6 +18,27 @@ FORM_TEXT_HINTS = (
     "اشتراک‌گذاری", "اشتراک گذاری", "بستن", "نام *", "ایمیل *",
     "leave a reply", "your email address", "required fields",
 )
+COMMENT_NOISE_EXACT = {
+    "پاسخ", "reply", "reply to", "دیدگاه", "comment", "comments", "نظرات شما",
+}
+COMMENT_NOISE_PHRASES = (
+    "اولین دیدگاه را شما ثبت کنید",
+    "دیدگاه خود را",
+    "نوشتن دیدگاه",
+    "برای ثبت دیدگاه",
+    "نظرات شما",
+    "comments are closed",
+    "write a comment",
+    "leave a reply",
+)
+COMMENT_NOISE_PATTERNS = (
+    re.compile(r"^[0-9۰-۹]+\s*(?:دیدگاه|comments?)$", re.IGNORECASE),
+    re.compile(r"^[0-9۰-۹]+(?:\s+[0-9۰-۹]+)?\s*(?:پاسخ|reply)?\s*(?:[0-9۰-۹]+\s*)?(?:روز|هفته|ماه|سال)\s*(?:پیش|ago)?$", re.IGNORECASE),
+    re.compile(r"^(?:[0-9۰-۹]+\s*)?(?:روز|هفته|ماه|سال)\s*(?:پیش|ago)$", re.IGNORECASE),
+)
+STRONG_TEXT_HINTS = (
+    "comment-body", "comment-content", "comment-text", "review-text", "review-body", "commenttext",
+)
 
 
 @dataclass(slots=True)
@@ -111,6 +132,29 @@ def _find_attr(node: Node, names: tuple[str, ...]) -> str | None:
     return None
 
 
+def _is_noise_text(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", text).strip().casefold()
+    if not normalized:
+        return True
+    if normalized in COMMENT_NOISE_EXACT:
+        return True
+    if any(phrase in normalized for phrase in COMMENT_NOISE_PHRASES):
+        return True
+    return any(pattern.fullmatch(normalized) for pattern in COMMENT_NOISE_PATTERNS)
+
+
+def _has_strong_text_marker(node: Node | None) -> bool:
+    if node is None:
+        return False
+    for candidate in _walk(node):
+        marker = candidate.marker()
+        if any(hint in marker for hint in STRONG_TEXT_HINTS):
+            return True
+        if candidate.attrs.get("itemprop", "").casefold() in {"commenttext", "reviewbody"}:
+            return True
+    return False
+
+
 def _json_ld_comments(parser: TreeParser) -> list[ExtractedComment]:
     results: list[ExtractedComment] = []
     for node in _walk(parser.root):
@@ -127,7 +171,7 @@ def _json_ld_comments(parser: TreeParser) -> list[ExtractedComment]:
             if str(item.get("@type", "")).lower() != "comment":
                 continue
             text = str(item.get("text") or item.get("commentText") or "").strip()
-            if text:
+            if text and not _is_noise_text(text):
                 results.append(ExtractedComment(text, item.get("url"), item.get("datePublished"), item.get("identifier"), .98, "schema.org-jsonld"))
     return results
 
@@ -138,7 +182,12 @@ def _extract_from_candidate(node: Node, base_url: str, method: str) -> Extracted
     text = re.sub(r"\s+", " ", text).strip()
     if len(text) < 2 or len(text) > 10_000:
         return None
-    if any(marker in text.casefold() for marker in FORM_TEXT_HINTS):
+    if _is_noise_text(text) or any(marker in text.casefold() for marker in FORM_TEXT_HINTS):
+        return None
+    strong_marker = _has_strong_text_marker(text_node) or _has_strong_text_marker(node)
+    # Generic comment wrappers often contain usernames, dates, reply links, or
+    # counts. Keep short text only when it comes from an explicit body field.
+    if not strong_marker and len(text) < 8:
         return None
     result = classify_persian(text)
     if result.language not in {"fa", "uncertain"}:
@@ -174,12 +223,13 @@ def extract_page(html: str, page_url: str) -> PageExtraction:
     # Prefer the smallest marked nodes. This prevents a whole comment list from
     # being stored as one record when individual comment bodies are present.
     candidates.sort(key=lambda item: len(item.text()))
-    seen: set[str] = {item.text for item in comments}
+    seen: set[str] = {re.sub(r"\s+", " ", item.text).strip().casefold() for item in comments}
     for candidate in candidates:
         extracted = _extract_from_candidate(candidate, page_url, "html-heuristic")
-        if extracted and extracted.text not in seen:
+        key = re.sub(r"\s+", " ", extracted.text).strip().casefold() if extracted else ""
+        if extracted and key not in seen:
             comments.append(extracted)
-            seen.add(extracted.text)
+            seen.add(key)
 
     links: list[str] = []
     for node in _walk(parser.root):

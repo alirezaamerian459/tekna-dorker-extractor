@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from persian_comment_crawler.config import CrawlConfig
-from persian_comment_crawler.discovery import BingSearchProvider, CommonCrawlProvider, TrancoProvider
+from persian_comment_crawler.discovery import BingSearchProvider, CommonCrawlProvider, TrancoProvider, discovery_candidates
 
 
 class DiscoveryTests(unittest.TestCase):
@@ -54,3 +54,12 @@ class DiscoveryTests(unittest.TestCase):
 
         with patch("persian_comment_crawler.discovery.urllib.request.urlopen", side_effect=[Response(b'{"download":"https://tranco.test/list.csv"}'), Response(b"")]):
             self.assertEqual(provider.discover_ir(10), ["https://news.ir/", "https://shop.ir/"])
+
+    def test_discovery_prioritizes_article_links_and_skips_assets(self):
+        html = """
+        <a href="/tag/music">tag</a>
+        <a href="/news/useful-story">story</a>
+        <a href="/images/photo.jpg">image</a>
+        """
+        candidates = list(discovery_candidates("https://example.ir/", html, "text/html"))
+        self.assertEqual(candidates, [("https://example.ir/tag/music", "internal-link", 80), ("https://example.ir/news/useful-story", "internal-link", 30)])

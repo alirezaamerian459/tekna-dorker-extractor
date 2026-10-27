@@ -36,3 +36,22 @@ class ExtractorTests(unittest.TestCase):
         """
         result = extract_page(html, "https://example.org/post")
         self.assertEqual(result.comments, ())
+
+    def test_ignores_comment_controls_and_metadata(self):
+        html = """
+        <section id="comments">
+          <article class="comment">
+            <a class="comment-reply-link">پاسخ</a>
+            <time>2 هفته پیش</time>
+            <span class="comment-count">3 0 پاسخ 6 ماه پیش</span>
+            <div class="comment-content">این یک نظر واقعی و مفید است.</div>
+          </article>
+        </section>
+        """
+        result = extract_page(html, "https://example.org/post")
+        self.assertEqual([item.text for item in result.comments], ["این یک نظر واقعی و مفید است."])
+
+    def test_ignores_first_comment_placeholder(self):
+        html = '<section id="comments"><div class="comment">اولین دیدگاه را شما ثبت کنید! دیدگاه خود را بنویسید</div></section>'
+        result = extract_page(html, "https://example.org/post")
+        self.assertEqual(result.comments, ())
