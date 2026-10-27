@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 from urllib.robotparser import RobotFileParser
 
 from .config import CrawlConfig
-from .discovery import FOCUSED_ENTRYPOINTS, BingSearchProvider, CommonCrawlProvider, TrancoProvider, default_search_queries, discovery_candidates
+from .discovery import FOCUSED_ENTRYPOINTS, BingSearchProvider, CommonCrawlProvider, TrancoProvider, default_search_queries, discovery_candidates, link_priority
 from .extractor import extract_page
 from .fetcher import UrlFetcher
 from .models import CommentRecord, CrawlState, CrawlStats, utc_now
@@ -211,13 +211,20 @@ class CrawlEngine:
                 url = normalize_url(raw_url)
             except UnsafeUrl:
                 continue
-            if self.store.upsert_url(url, source, priority):
+            focused_priority = self._priority_for_url(url, priority)
+            if self.store.upsert_url(url, source, focused_priority):
                 self.emit("activity", f"Queued focused target: {url}")
 
     def _priority_for_url(self, url: str, fallback: int) -> int:
-        if not self.config.auto_ir_discovery:
+        # Re-score the URL shape first so an old priority-50 backlog cannot
+        # bury comment, app, product, or sitemap pages. Popularity then acts
+        # as a tie-breaker for ordinary pages and unknown domains.
+        structural = link_priority(url, fallback)
+        if structural is None:
             return fallback
-        return self.tranco_provider.priority_for_url(url, fallback)
+        if not self.config.auto_ir_discovery:
+            return structural
+        return self.tranco_provider.priority_for_url(url, structural)
 
     def _allowed_by_robots(self, url: str) -> bool:
         parts = urlsplit(url)

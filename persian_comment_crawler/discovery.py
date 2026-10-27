@@ -14,12 +14,14 @@ from urllib.parse import urljoin, urlsplit
 NON_HTML_EXTENSIONS = (".7z", ".aab", ".apk", ".avi", ".bin", ".csv", ".dmg", ".doc", ".docx", ".exe", ".gif", ".gz", ".iso", ".jpeg", ".jpg", ".m4a", ".mkv", ".mov", ".msi", ".mp3", ".mp4", ".pdf", ".png", ".ppt", ".pptx", ".rar", ".svg", ".tar", ".webm", ".webp", ".xls", ".xlsx", ".xml.zip", ".zip")
 LOW_VALUE_PATH_PARTS = {"amp", "archive", "author", "category", "feed", "login", "page", "register", "search", "tag", "tags", "wp-admin", "wp-json"}
 HIGH_VALUE_PATH_PARTS = {"article", "articles", "blog", "news", "post", "posts", "review", "reviews", "single", "single-tracks"}
+COMMENT_PATH_PARTS = {"comment", "comments", "discussion", "discussions", "feedback", "opinion", "opinions", "review", "reviews", "نظر", "نظرات", "دیدگاه", "دیدگاهها"}
 APP_STORE_DOMAINS = {"cafebazaar.ir", "myket.ir"}
 FOCUSED_DOMAINS = APP_STORE_DOMAINS | {"digikala.com", "torob.com", "soft98.ir", "vgdl.ir"}
 FOCUSED_ENTRYPOINTS = (
     ("https://cafebazaar.ir/app", "focused-app-store", 12),
     ("https://myket.ir/apps", "focused-app-store", 12),
     ("https://myket.ir/games", "focused-app-store", 12),
+    ("https://www.digikala.com/sitemap.xml", "focused-marketplace-sitemap", 7),
     ("https://www.digikala.com/", "focused-marketplace", 18),
     ("https://torob.com/", "focused-marketplace", 18),
     ("https://soft98.ir/", "focused-software", 18),
@@ -50,24 +52,33 @@ def link_priority(url: str, default: int = 50) -> int | None:
     """Return a crawl priority, or None for a known non-HTML asset."""
     parts = urlsplit(url)
     path = parts.path.lower()
+    hostname = (parts.hostname or "").lower().removeprefix("www.")
     sitemap_gzip = path.endswith(".gz") and ("sitemap" in path or "site-map" in path)
     if (path.endswith(NON_HTML_EXTENSIONS) and not sitemap_gzip) or parts.query.lower().startswith(("replytocom=", "amp=1")):
         return None
     if sitemap_gzip:
-        return min(default, 18)
-    hostname = (parts.hostname or "").lower().removeprefix("www.")
+        # Digikala publishes product sitemaps on a static subdomain. Keep
+        # those index parts ahead of ordinary navigation so product URLs can
+        # enter the queue before the domain budget is consumed.
+        return min(default, 7 if hostname.endswith("digikala.com") else 18)
+    decoded_path = urllib.parse.unquote(path)
+    segments = {segment for segment in decoded_path.split("/") if segment}
+    query_text = parts.query.lower()
+    if segments & COMMENT_PATH_PARTS or any(hint in query_text for hint in ("comment", "review", "feedback", "discussion")):
+        return min(default, 10)
     if hostname in APP_STORE_DOMAINS:
         if path.startswith("/app/"):
-            return 12
+            return min(default, 5)
         if path in {"/app", "/apps", "/games"} or path.startswith(("/apps/", "/games/")):
-            return 18
+            return min(default, 10)
     if hostname == "digikala.com" and path.startswith("/product/"):
-        return 12
+        return min(default, 5)
     if hostname == "torob.com" and path.startswith("/p/"):
-        return 12
+        return min(default, 5)
+    if hostname == "digikala.com" and path == "/sitemap.xml":
+        return min(default, 7)
     if hostname in FOCUSED_DOMAINS:
-        return min(default, 22)
-    segments = {segment for segment in path.split("/") if segment}
+        return min(default, 15)
     if segments & LOW_VALUE_PATH_PARTS:
         return 80
     if segments & HIGH_VALUE_PATH_PARTS:

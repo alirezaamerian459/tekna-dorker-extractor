@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from persian_comment_crawler.config import CrawlConfig
-from persian_comment_crawler.discovery import BingSearchProvider, CommonCrawlProvider, TrancoProvider, discovery_candidates, link_priority, same_domain
+from persian_comment_crawler.discovery import FOCUSED_ENTRYPOINTS, BingSearchProvider, CommonCrawlProvider, TrancoProvider, discovery_candidates, link_priority, same_domain
 
 
 class DiscoveryTests(unittest.TestCase):
@@ -67,9 +67,12 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(candidates, [("https://example.ir/tag/music", "internal-link", 80), ("https://example.ir/news/useful-story", "internal-link", 30)])
 
     def test_focused_market_targets_get_priority(self):
-        self.assertEqual(link_priority("https://cafebazaar.ir/app/com.example", 50), 12)
-        self.assertEqual(link_priority("https://myket.ir/apps/social", 50), 18)
-        self.assertEqual(link_priority("https://www.digikala.com/product/dkp-1", 50), 12)
-        self.assertEqual(link_priority("https://torob.com/p/abc/widget/", 50), 12)
-        self.assertEqual(link_priority("https://dkstatics-public.digikala.com/digikala-site-map/part.gz", 50), 18)
+        self.assertEqual(link_priority("https://cafebazaar.ir/app/com.example", 50), 5)
+        self.assertEqual(link_priority("https://myket.ir/apps/social", 50), 10)
+        self.assertEqual(link_priority("https://www.digikala.com/product/dkp-1", 50), 5)
+        self.assertEqual(link_priority("https://torob.com/p/abc/widget/", 50), 5)
+        self.assertEqual(link_priority("https://www.digikala.com/sitemap.xml", 50), 7)
+        self.assertEqual(link_priority("https://dkstatics-public.digikala.com/digikala-site-map/part.gz", 50), 7)
+        self.assertEqual(link_priority("https://example.ir/article/1/comments", 50), 10)
+        self.assertIn(("https://www.digikala.com/sitemap.xml", "focused-marketplace-sitemap", 7), FOCUSED_ENTRYPOINTS)
         self.assertTrue(same_domain("https://digikala.com/product/dkp-1", "www.digikala.com"))
