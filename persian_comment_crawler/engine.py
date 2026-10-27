@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 from urllib.robotparser import RobotFileParser
 
 from .config import CrawlConfig
-from .discovery import BingSearchProvider, CommonCrawlProvider, default_search_queries, discovery_candidates
+from .discovery import BingSearchProvider, CommonCrawlProvider, TrancoProvider, default_search_queries, discovery_candidates
 from .extractor import extract_page
 from .fetcher import UrlFetcher
 from .models import CommentRecord, CrawlState, CrawlStats, utc_now
@@ -31,6 +31,7 @@ class CrawlEngine:
         self.fetcher = UrlFetcher(config)
         self.search_provider = BingSearchProvider(config.search_api_key or None)
         self.common_crawl_provider = CommonCrawlProvider(config.user_agent, min(config.request_timeout_seconds, 12))
+        self.tranco_provider = TrancoProvider(config.user_agent, min(config.request_timeout_seconds, 30))
         self.state = CrawlState.IDLE
         self.stats = CrawlStats(remaining_storage_bytes=store.budget.remaining())
         self._pause_event = threading.Event()
@@ -114,6 +115,10 @@ class CrawlEngine:
     def _seed_urls(self) -> None:
         before = self.store.count("discovered_urls")
         if self.store.has_pending_urls():
+            # Keep a small high-yield refresh on every session so an older
+            # backlog cannot starve newly ranked popular domains.
+            if self.config.auto_ir_discovery:
+                self._seed_popular_ir(refresh=True)
             return
         if self.config.auto_ir_discovery and self.search_provider.enabled:
             self.emit("activity", "Discovering Iranian .ir pages through the configured search API")
@@ -125,6 +130,7 @@ class CrawlEngine:
                         continue
                     self.store.upsert_url(safe, f"{self.search_provider.name}: {query}", 25)
         if self.config.auto_ir_discovery:
+            self._seed_popular_ir()
             self.emit("activity", "Discovering archived .ir pages through Common Crawl (up to 12 seconds)")
             common_urls = self.common_crawl_provider.discover_ir(limit=max(25, self.config.search_results_per_query * 3))
             for url in common_urls:
@@ -139,7 +145,7 @@ class CrawlEngine:
                 self.emit("activity", f"Common Crawl returned {len(common_urls)} .ir URLs")
         if not self.config.seed_urls and not self.store.has_pending_urls():
             if self.config.auto_ir_discovery and not self.search_provider.enabled:
-                self.emit("activity", "Automatic .ir discovery needs a permitted Bing API key; add BING_SEARCH_API_KEY or enter one in the app")
+                self.emit("activity", "No live search API key configured; Tranco and Common Crawl discovery are still available")
             else:
                 self.emit("activity", "No discovery results were returned")
         queued = self.store.count("discovered_urls") - before
@@ -152,6 +158,25 @@ class CrawlEngine:
                 continue
             if self.store.upsert_url(url, "manual-seed", 10):
                 self.emit("activity", f"Queued seed: {url}")
+
+    def _seed_popular_ir(self, refresh: bool = False) -> None:
+        self.emit(
+            "activity",
+            "Refreshing popular .ir domains from the daily Tranco ranking"
+            if refresh
+            else "Prioritizing popular .ir domains from the daily Tranco ranking",
+        )
+        popular_urls = self.tranco_provider.discover_ir(limit=50)
+        for url in popular_urls:
+            try:
+                safe = normalize_url(url)
+            except UnsafeUrl:
+                continue
+            self.store.upsert_url(safe, "tranco-popular-ir", 15)
+        if self.tranco_provider.last_error:
+            self.emit("activity", f"Tranco unavailable: {self.tranco_provider.last_error}")
+        else:
+            self.emit("activity", f"Tranco returned {len(popular_urls)} popular .ir domains")
 
     def _allowed_by_robots(self, url: str) -> bool:
         parts = urlsplit(url)

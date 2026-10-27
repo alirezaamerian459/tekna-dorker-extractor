@@ -138,6 +138,45 @@ class CommonCrawlProvider:
         return list(dict.fromkeys(urls))
 
 
+class TrancoProvider:
+    """Find popular `.ir` domains from Tranco's public daily ranking."""
+
+    metadata_url = "https://tranco-list.eu/api/lists/date/latest"
+
+    def __init__(self, user_agent: str = "PersianCommentCrawler/0.1", timeout: int = 30) -> None:
+        self.user_agent = user_agent
+        self.timeout = timeout
+        self.last_error: str | None = None
+
+    def discover_ir(self, limit: int = 50) -> list[str]:
+        try:
+            metadata_request = urllib.request.Request(self.metadata_url, headers={"User-Agent": self.user_agent, "Accept": "application/json"})
+            with urllib.request.urlopen(metadata_request, timeout=self.timeout) as response:
+                metadata = json.loads(response.read(100_000).decode("utf-8", errors="replace"))
+            download_url = metadata.get("download") if isinstance(metadata, dict) else None
+            if not download_url:
+                self.last_error = "Tranco returned no download URL"
+                return []
+            request = urllib.request.Request(download_url, headers={"User-Agent": self.user_agent, "Accept": "text/csv"})
+            results: list[str] = []
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                for raw_line in response:
+                    try:
+                        _rank, domain = raw_line.decode("utf-8", errors="ignore").strip().split(",", 1)
+                    except ValueError:
+                        continue
+                    domain = domain.strip().lower().rstrip(".")
+                    if domain.endswith(".ir") and not domain.startswith("www."):
+                        results.append(f"https://{domain}/")
+                        if len(results) >= max(1, min(limit, 200)):
+                            break
+            self.last_error = None
+            return list(dict.fromkeys(results))
+        except Exception as exc:
+            self.last_error = str(exc)[:200]
+            return []
+
+
 class BingSearchProvider(SearchProvider):
     """Use Bing Web Search only when the user supplies an API key.
 

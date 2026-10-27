@@ -37,7 +37,7 @@ To build a Windows executable after installing PyInstaller:
 
 ## What it does
 
-- Includes automatic `.ir` discovery through an authorized Bing Web Search API: it runs built-in Persian comment queries, filters results to `.ir`, and then performs bounded same-domain discovery. Manual seeds remain optional.
+- Includes automatic `.ir` discovery with a high-yield path: it first prioritizes popular `.ir` domains from Tranco's daily public ranking, then adds archival Common Crawl URLs and optional authorized Bing Web Search results. Manual seeds remain optional.
 - Checks robots.txt, uses a descriptive user agent, applies domain cooldowns, and rejects non-HTTP(S), embedded-credential, private, loopback, link-local, reserved, and multicast targets.
 - Detects semantic comment structures, WordPress-style classes, reviews, replies, and Schema.org JSON-LD comments.
 - Normalizes Persian/Arabic Unicode variants while preserving the original comment text.
@@ -60,4 +60,4 @@ The original browser-only dorker interface remains in `index.html`, `styles.css`
 
 ## Automatic `.ir` discovery
 
-Enable **Automatically discover .ir websites** in the desktop app. The app queries the free Common Crawl URL Index without an account or API key, filters returned URLs to the `.ir` country-code domain, and then crawls those public pages. This is archival discovery, so it may miss newer websites. An optional Bing Web Search API key can add live results; it may also be supplied as `BING_SEARCH_API_KEY`. The app calls the documented JSON API, never scrapes a search-results page, and redacts the key from session configuration files.
+Enable **Automatically discover .ir websites** in the desktop app. The app first reads Tranco's daily public ranking and queues popular `.ir` domains at the highest priority, then adds URLs from the free Common Crawl URL Index without an account or API key. It filters results to the `.ir` country-code domain and crawls those public pages. Common Crawl is archival and Tranco is a popularity ranking, so coverage and freshness vary. An optional Bing Web Search API key can add live results; it may also be supplied as `BING_SEARCH_API_KEY`. The app calls the documented JSON API, never scrapes a search-results page, and redacts the key from session configuration files.

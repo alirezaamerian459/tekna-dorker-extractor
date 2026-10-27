@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from persian_comment_crawler.config import CrawlConfig
-from persian_comment_crawler.discovery import BingSearchProvider, CommonCrawlProvider
+from persian_comment_crawler.discovery import BingSearchProvider, CommonCrawlProvider, TrancoProvider
 
 
 class DiscoveryTests(unittest.TestCase):
@@ -32,3 +32,25 @@ class DiscoveryTests(unittest.TestCase):
 
         with patch("persian_comment_crawler.discovery.urllib.request.urlopen", return_value=Response()):
             self.assertEqual(provider.discover_ir(), ["https://one.ir/a", "https://two.ir/c"])
+
+    def test_tranco_provider_returns_ranked_ir_domains(self):
+        provider = TrancoProvider()
+
+        class Response:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _size):
+                return self.payload
+
+            def __iter__(self):
+                return iter([b"1,example.com\r\n", b"2,news.ir\r\n", b"3,shop.ir\r\n"])
+
+        with patch("persian_comment_crawler.discovery.urllib.request.urlopen", side_effect=[Response(b'{"download":"https://tranco.test/list.csv"}'), Response(b"")]):
+            self.assertEqual(provider.discover_ir(10), ["https://news.ir/", "https://shop.ir/"])
