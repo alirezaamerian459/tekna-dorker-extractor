@@ -3,6 +3,7 @@ from __future__ import annotations
 import queue
 import threading
 import tkinter as tk
+from dataclasses import asdict
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
@@ -27,6 +28,7 @@ class CrawlerApp(tk.Tk):
         self.config_model = CrawlConfig()
         self._build_styles()
         self._build_ui()
+        self._load_existing_stats()
         self.after(300, self._drain_events)
         self.protocol("WM_DELETE_WINDOW", self._close)
 
@@ -156,6 +158,7 @@ class CrawlerApp(tk.Tk):
             self.config_model = self._config()
             self.store = SQLiteStore(self.config_model.data_root, self.config_model)
             self.engine = CrawlEngine(self.config_model, self.store, lambda event, payload: self.events.put((event, payload)))
+            self.events.put(("stats", asdict(self.engine.stats)))
             self.engine.start()
         except Exception as exc:
             messagebox.showerror("Could not start crawl", str(exc))
@@ -191,6 +194,17 @@ class CrawlerApp(tk.Tk):
         path.mkdir(parents=True, exist_ok=True)
         import os
         os.startfile(path)  # type: ignore[attr-defined]
+
+    def _load_existing_stats(self) -> None:
+        """Hydrate the cards when opening an existing managed data directory."""
+        try:
+            store = SQLiteStore(self.config_model.data_root, self.config_model)
+            counts = store.dashboard_counts()
+            store.close()
+            self.events.put(("stats", counts))
+        except Exception:
+            # A first-run directory has no persisted data yet.
+            return
 
     def _drain_events(self) -> None:
         while True:

@@ -36,7 +36,16 @@ class CrawlEngine:
         self.common_crawl_provider = CommonCrawlProvider(config.user_agent, min(config.request_timeout_seconds, 12))
         self.tranco_provider = TrancoProvider(config.user_agent, min(config.request_timeout_seconds, 30))
         self.state = CrawlState.IDLE
-        self.stats = CrawlStats(remaining_storage_bytes=store.budget.remaining())
+        persisted = store.dashboard_counts()
+        self.stats = CrawlStats(
+            discovered_websites=persisted["discovered_websites"],
+            visited_pages=persisted["visited_pages"],
+            processed_pages=persisted["visited_pages"],
+            unique_comments=persisted["unique_comments"],
+            errors=persisted["errors"],
+            storage_bytes=persisted["storage_bytes"],
+            remaining_storage_bytes=persisted["remaining_storage_bytes"],
+        )
         self._pause_event = threading.Event()
         self._stop_event = threading.Event()
         self._emergency_event = threading.Event()
@@ -71,6 +80,7 @@ class CrawlEngine:
             self._thread = threading.Thread(target=self._run, name="crawler-dispatcher", daemon=True)
             self._thread.start()
             self.emit("state", self.state)
+            self.emit("stats", asdict(self.stats))
             if requeued:
                 self.emit("activity", f"Recovered {requeued} interrupted URL(s)")
             if pruned_assets or pruned_budget:

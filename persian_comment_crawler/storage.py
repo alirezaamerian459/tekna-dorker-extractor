@@ -297,6 +297,18 @@ class SQLiteStore:
         with self._lock:
             return int(self._connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
 
+    def dashboard_counts(self) -> dict[str, int]:
+        """Return persisted counters so a reopened GUI reflects the database."""
+        with self._lock:
+            return {
+                "discovered_websites": int(self._connection.execute("SELECT COUNT(*) FROM domains").fetchone()[0]),
+                "visited_pages": int(self._connection.execute("SELECT COUNT(*) FROM discovered_urls WHERE visited_at IS NOT NULL").fetchone()[0]),
+                "unique_comments": int(self._connection.execute("SELECT COUNT(*) FROM comments").fetchone()[0]),
+                "errors": int(self._connection.execute("SELECT COUNT(*) FROM discovered_urls WHERE status='error'").fetchone()[0]),
+                "storage_bytes": self.budget.usage(),
+                "remaining_storage_bytes": self.budget.remaining(),
+            }
+
     def comments_for_domain(self, domain: str | None = None) -> list[sqlite3.Row]:
         with self._lock:
             if domain:
