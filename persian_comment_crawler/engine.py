@@ -134,6 +134,12 @@ class CrawlEngine:
 
     def _seed_urls(self) -> None:
         before = self.store.count("discovered_urls")
+        if self.config.auto_ir_discovery:
+            # Apply today's ranking to an existing backlog as well as new URLs.
+            self.tranco_provider.load_ir_rankings()
+            reprioritized = self.store.reprioritize_pending(self._priority_for_url)
+            if reprioritized:
+                self.emit("activity", f"Applied popularity tiers to {reprioritized} queued URL(s)")
         if self.store.has_pending_urls():
             # Keep a small high-yield refresh on every session so an older
             # backlog cannot starve newly ranked popular domains.

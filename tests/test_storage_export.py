@@ -18,6 +18,7 @@ class StorageExportTests(unittest.TestCase):
             self.assertEqual(store.skip_pending_host_prefixes(("dl",), "asset host"), 1)
             self.assertTrue(store.has_pending_urls())
             self.assertEqual(store.dashboard_counts()["discovered_websites"], 2)
+            self.assertEqual(store.reprioritize_pending(lambda _url, _priority: 15), 1)
             store.close()
 
     def test_comment_deduplication_and_domain_export(self):

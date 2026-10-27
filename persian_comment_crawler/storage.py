@@ -9,7 +9,7 @@ import tempfile
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator
 from urllib.parse import urlsplit
 
 from .config import CrawlConfig
@@ -233,6 +233,19 @@ class SQLiteStore:
                 (utc_now(), reason[:300], max(1, int(max_pages))),
             )
             return int(cur.rowcount)
+
+    def reprioritize_pending(self, scorer: Callable[[str, int], int]) -> int:
+        """Update queued priorities without changing URLs or their sources."""
+        with self.transaction() as db:
+            rows = db.execute("SELECT url,priority FROM discovered_urls WHERE status='pending'").fetchall()
+            updates = []
+            for row in rows:
+                priority = max(0, int(scorer(str(row["url"]), int(row["priority"]))))
+                if priority != int(row["priority"]):
+                    updates.append((priority, row["url"]))
+            if updates:
+                db.executemany("UPDATE discovered_urls SET priority=? WHERE url=? AND status='pending'", updates)
+            return len(updates)
 
     def requeue_incomplete_urls(self, max_retries: int = 2) -> int:
         with self.transaction() as db:
