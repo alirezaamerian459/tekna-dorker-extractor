@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import queue
 import threading
 import time
 import urllib.error
 import urllib.request
-from collections import defaultdict
+from collections import defaultdict, deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
@@ -13,7 +12,7 @@ from urllib.parse import urlsplit
 from urllib.robotparser import RobotFileParser
 
 from .config import CrawlConfig
-from .discovery import FOCUSED_ENTRYPOINTS, BingSearchProvider, CommonCrawlProvider, TrancoProvider, default_search_queries, discovery_candidates, is_catalog_url, is_sitemap_page, link_priority
+from .discovery import FOCUSED_DOMAINS, FOCUSED_ENTRYPOINTS, BingSearchProvider, CommonCrawlProvider, TrancoProvider, default_search_queries, discovery_candidates, is_catalog_url, is_sitemap_page, link_priority
 from .extractor import extract_page
 from .fetcher import UrlFetcher
 from .models import CommentRecord, CrawlState, CrawlStats, utc_now
@@ -43,6 +42,9 @@ class CrawlEngine:
             visited_pages=persisted["visited_pages"],
             processed_pages=persisted["visited_pages"],
             unique_comments=persisted["unique_comments"],
+            pending_urls=persisted.get("pending_urls", 0),
+            active_urls=persisted.get("active_urls", 0),
+            failed_urls=persisted.get("failed_urls", 0),
             errors=persisted["errors"],
             storage_bytes=persisted["storage_bytes"],
             remaining_storage_bytes=persisted["remaining_storage_bytes"],
@@ -283,13 +285,29 @@ class CrawlEngine:
                 ordinary_count += 1
         return selected
 
+    def _emit_runtime(self, workers) -> None:
+        """Publish compact live queue/worker telemetry for the dashboard."""
+        queue_state = self.store.queue_snapshot()
+        self.stats.pending_urls = int(queue_state["pending"])
+        self.stats.active_urls = int(queue_state["active"])
+        self.stats.failed_urls = int(queue_state["errors"])
+        self.emit("stats", asdict(self.stats))
+        self.emit("workers", sorted((dict(worker) for worker in workers), key=lambda item: int(item["lane"])))
+        self.emit("queue", {
+            **queue_state,
+            "focused": self.store.focused_snapshot(sorted(FOCUSED_DOMAINS)),
+        })
+
     def _run(self) -> None:
         self._executor = ThreadPoolExecutor(max_workers=self.config.concurrency, thread_name_prefix="crawler-worker")
         try:
             self.emit("activity", "Starting discovery…")
             self._seed_urls()
-            futures: dict[Future[None], str] = {}
+            futures: dict[Future[None], dict[str, object]] = {}
             active_domains: set[str] = set()
+            free_lanes = deque(range(1, self.config.concurrency + 1))
+            last_runtime_emit = 0.0
+            self._emit_runtime(())
             while not self._stop_event.is_set():
                 if self.config.safe_test_mode and time.monotonic() - self._started_at >= self.config.test_duration_seconds:
                     self.emit("activity", "Safe Test Mode duration reached")
@@ -302,16 +320,22 @@ class CrawlEngine:
                         break
                     domain = str(row["domain"])
                     active_domains.add(domain)
+                    lane = free_lanes.popleft()
                     future = self._executor.submit(self._process_url, row["url"])
-                    futures[future] = domain
+                    futures[future] = {"lane": lane, "domain": domain, "url": str(row["url"])}
                 done = {future for future in futures if future.done()}
                 for future in done:
-                    active_domains.discard(futures.pop(future))
+                    info = futures.pop(future)
+                    active_domains.discard(str(info["domain"]))
+                    free_lanes.append(int(info["lane"]))
                     try:
                         future.result()
                     except Exception as exc:
                         self.store.log("error", "engine", str(exc))
                         self.stats.errors += 1
+                if time.monotonic() - last_runtime_emit >= 0.4:
+                    self._emit_runtime(futures.values())
+                    last_runtime_emit = time.monotonic()
                 if not futures and not self.store.has_pending_urls():
                     break
                 time.sleep(0.05)
@@ -334,6 +358,7 @@ class CrawlEngine:
                 self.store.set_session_state(self.state)
                 self.store.checkpoint(self.state, "worker finished")
                 self.emit("state", self.state)
+                self._emit_runtime(())
                 self.emit("stats", asdict(self.stats))
 
     def _process_url(self, url: str) -> None:

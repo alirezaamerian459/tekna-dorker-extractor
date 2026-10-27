@@ -349,9 +349,51 @@ class SQLiteStore:
                 "visited_pages": int(self._connection.execute("SELECT COUNT(*) FROM discovered_urls WHERE visited_at IS NOT NULL").fetchone()[0]),
                 "unique_comments": int(self._connection.execute("SELECT COUNT(*) FROM comments").fetchone()[0]),
                 "errors": int(self._connection.execute("SELECT COUNT(*) FROM discovered_urls WHERE status='error'").fetchone()[0]),
+                "pending_urls": int(self._connection.execute("SELECT COUNT(*) FROM discovered_urls WHERE status='pending'").fetchone()[0]),
+                "active_urls": int(self._connection.execute("SELECT COUNT(*) FROM discovered_urls WHERE status='active'").fetchone()[0]),
+                "failed_urls": int(self._connection.execute("SELECT COUNT(*) FROM discovered_urls WHERE status='error'").fetchone()[0]),
                 "storage_bytes": self.budget.usage(),
                 "remaining_storage_bytes": self.budget.remaining(),
             }
+
+    def queue_snapshot(self, limit: int = 12) -> dict[str, object]:
+        """Return compact queue data for the live operations dashboard."""
+        with self._lock:
+            counts = {
+                "pending": int(self._connection.execute("SELECT COUNT(*) FROM discovered_urls WHERE status='pending'").fetchone()[0]),
+                "active": int(self._connection.execute("SELECT COUNT(*) FROM discovered_urls WHERE status='active'").fetchone()[0]),
+                "done": int(self._connection.execute("SELECT COUNT(*) FROM discovered_urls WHERE status='done'").fetchone()[0]),
+                "errors": int(self._connection.execute("SELECT COUNT(*) FROM discovered_urls WHERE status='error'").fetchone()[0]),
+            }
+            rows = self._connection.execute(
+                """SELECT domain,url,priority,discovery_source FROM discovered_urls
+                   WHERE status='pending' ORDER BY priority ASC, discovered_at ASC LIMIT ?""",
+                (max(1, min(int(limit), 50)),),
+            ).fetchall()
+            return {**counts, "top": [dict(row) for row in rows]}
+
+    def focused_snapshot(self, roots: Iterable[str]) -> list[dict[str, object]]:
+        """Summarize the focused catalog domains and their current queue state."""
+        result: list[dict[str, object]] = []
+        with self._lock:
+            for root in roots:
+                pattern = f"%.{root}"
+                counts = {str(row["status"]): int(row["count"]) for row in self._connection.execute(
+                    "SELECT status,COUNT(*) AS count FROM discovered_urls WHERE domain=? OR domain LIKE ? GROUP BY status",
+                    (root, pattern),
+                )}
+                comments = int(self._connection.execute(
+                    "SELECT COUNT(*) FROM comments WHERE domain=? OR domain LIKE ?", (root, pattern)
+                ).fetchone()[0])
+                result.append({
+                    "domain": root,
+                    "pending": counts.get("pending", 0),
+                    "active": counts.get("active", 0),
+                    "done": counts.get("done", 0),
+                    "errors": counts.get("error", 0),
+                    "comments": comments,
+                })
+        return result
 
     def comments_for_domain(self, domain: str | None = None) -> list[sqlite3.Row]:
         with self._lock:

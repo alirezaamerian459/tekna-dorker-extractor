@@ -19,8 +19,8 @@ class CrawlerApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("Persian Comment Crawler")
-        self.geometry("1120x760")
-        self.minsize(900, 640)
+        self.geometry("1360x900")
+        self.minsize(1100, 760)
         self.configure(bg="#102e32")
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.store: SQLiteStore | None = None
@@ -42,7 +42,7 @@ class CrawlerApp(tk.Tk):
         style.configure("Card.TFrame", background="#173b3f")
         style.configure("TLabel", background="#102e32", foreground="#e7f4eb")
         style.configure("Muted.TLabel", background="#173b3f", foreground="#9bb6ad", font=("Segoe UI", 9))
-        style.configure("CardValue.TLabel", background="#173b3f", foreground="#d9f27f", font=("Segoe UI", 21, "bold"))
+        style.configure("CardValue.TLabel", background="#173b3f", foreground="#d9f27f", font=("Segoe UI", 17, "bold"))
         style.configure("CardTitle.TLabel", background="#173b3f", foreground="#b4ccc2", font=("Segoe UI", 9))
         style.configure("Heading.TLabel", background="#102e32", foreground="#f4fff5", font=("Segoe UI", 20, "bold"))
         style.configure("TButton", font=("Segoe UI", 9, "bold"), padding=(11, 7))
@@ -62,13 +62,48 @@ class CrawlerApp(tk.Tk):
         cards = ttk.Frame(self)
         cards.pack(fill="x", padx=24)
         self.card_values: dict[str, ttk.Label] = {}
-        for title, key in (("Websites", "websites"), ("Visited pages", "pages"), ("Unique Persian comments", "comments"), ("Requests / sec", "speed"), ("Storage used", "storage"), ("Errors", "errors")):
+        for title, key in (("Websites", "websites"), ("Visited pages", "pages"), ("Queued", "queued"), ("Active lanes", "active"), ("Unique Persian comments", "comments"), ("Requests / sec", "speed"), ("Storage used", "storage"), ("Errors", "errors")):
             card = ttk.Frame(cards, style="Card.TFrame", padding=(15, 12))
             card.pack(side="left", fill="both", expand=True, padx=(0, 8))
             value = ttk.Label(card, text="0", style="CardValue.TLabel")
             value.pack(anchor="w")
             ttk.Label(card, text=title, style="CardTitle.TLabel").pack(anchor="w", pady=(4, 0))
             self.card_values[key] = value
+
+        monitor = ttk.Frame(self)
+        monitor.pack(fill="both", expand=False, padx=24, pady=(14, 0))
+        monitor.configure(height=310)
+        monitor.pack_propagate(False)
+
+        workers_panel = ttk.Frame(monitor, style="Card.TFrame", padding=14)
+        workers_panel.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        ttk.Label(workers_panel, text="Live worker lanes", foreground="#d9f27f", background="#173b3f", font=("Segoe UI", 13, "bold")).pack(anchor="w")
+        ttk.Label(workers_panel, text="One active URL per host; idle lanes are ready for another website.", style="Muted.TLabel").pack(anchor="w", pady=(3, 8))
+        self.worker_tree = ttk.Treeview(workers_panel, columns=("lane", "host", "url", "state"), show="headings", height=8)
+        for column, heading, width in (("lane", "Lane", 55), ("host", "Website", 155), ("url", "Current URL", 430), ("state", "State", 90)):
+            self.worker_tree.heading(column, text=heading)
+            self.worker_tree.column(column, width=width, stretch=column in {"host", "url"})
+        self.worker_tree.tag_configure("active", background="#214d50", foreground="#d9f27f")
+        self.worker_tree.tag_configure("idle", background="#173b3f", foreground="#8aa69b")
+        self.worker_tree.pack(fill="both", expand=True)
+
+        monitor_right = ttk.Frame(monitor, style="Card.TFrame", padding=14)
+        monitor_right.pack(side="right", fill="both", expand=True)
+        ttk.Label(monitor_right, text="Queue control room", foreground="#d9f27f", background="#173b3f", font=("Segoe UI", 13, "bold")).pack(anchor="w")
+        self.queue_summary = ttk.Label(monitor_right, text="Waiting for the crawler…", style="Muted.TLabel")
+        self.queue_summary.pack(anchor="w", pady=(3, 6))
+        self.queue_tree = ttk.Treeview(monitor_right, columns=("priority", "domain", "url", "source"), show="headings", height=4)
+        for column, heading, width in (("priority", "P", 35), ("domain", "Website", 125), ("url", "Next URL", 330), ("source", "Source", 125)):
+            self.queue_tree.heading(column, text=heading)
+            self.queue_tree.column(column, width=width, stretch=column == "url")
+        self.queue_tree.pack(fill="x", expand=False)
+        ttk.Label(monitor_right, text="Focused targets", foreground="#b4ccc2", background="#173b3f", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(9, 3))
+        self.focused_tree = ttk.Treeview(monitor_right, columns=("site", "pending", "done", "comments", "errors"), show="headings", height=5)
+        for column, heading, width in (("site", "Site", 145), ("pending", "Queued", 65), ("done", "Done", 55), ("comments", "Comments", 75), ("errors", "Errors", 55)):
+            self.focused_tree.heading(column, text=heading)
+            self.focused_tree.column(column, width=width, stretch=column == "site")
+        self.focused_tree.pack(fill="both", expand=True)
+        self._render_workers([])
 
         body = ttk.Frame(self)
         body.pack(fill="both", expand=True, padx=24, pady=18)
@@ -142,6 +177,35 @@ class CrawlerApp(tk.Tk):
         scroll.place(relx=1.0, rely=0, relheight=1.0, anchor="ne")
         self.activity.configure(yscrollcommand=scroll.set)
 
+    def _render_workers(self, workers: list[dict[str, object]]) -> None:
+        if not hasattr(self, "worker_tree"):
+            return
+        active = {int(item.get("lane", 0)): item for item in workers}
+        self.worker_tree.delete(*self.worker_tree.get_children())
+        slots = self.engine.config.concurrency if self.engine else self.config_model.concurrency
+        for lane in range(1, slots + 1):
+            item = active.get(lane)
+            if item:
+                self.worker_tree.insert("", "end", values=(f"W{lane:02d}", item.get("domain", ""), item.get("url", ""), "Fetching"), tags=("active",))
+            else:
+                self.worker_tree.insert("", "end", values=(f"W{lane:02d}", "—", "Waiting for a website", "Idle"), tags=("idle",))
+
+    def _render_queue(self, payload: dict[str, object]) -> None:
+        if not hasattr(self, "queue_tree"):
+            return
+        pending = int(payload.get("pending", 0))
+        active = int(payload.get("active", 0))
+        errors = int(payload.get("errors", 0))
+        self.queue_summary.configure(text=f"{pending:,} queued  ·  {active:,} active  ·  {errors:,} failed")
+        self.queue_tree.delete(*self.queue_tree.get_children())
+        for item in payload.get("top", []):
+            if isinstance(item, dict):
+                self.queue_tree.insert("", "end", values=(item.get("priority", ""), item.get("domain", ""), item.get("url", ""), item.get("discovery_source", "")))
+        self.focused_tree.delete(*self.focused_tree.get_children())
+        for item in payload.get("focused", []):
+            if isinstance(item, dict):
+                self.focused_tree.insert("", "end", values=(item.get("domain", ""), item.get("pending", 0), item.get("done", 0), item.get("comments", 0), item.get("errors", 0)))
+
     def _browse(self) -> None:
         selected = filedialog.askdirectory(initialdir=self.data_var.get(), title="Choose managed data directory")
         if selected:
@@ -156,6 +220,7 @@ class CrawlerApp(tk.Tk):
             return
         try:
             self.config_model = self._config()
+            self.safe_label.configure(text=f"SAFE TEST · {self.config_model.test_duration_seconds // 60} MIN · {self.config_model.concurrency} LANES")
             self.store = SQLiteStore(self.config_model.data_root, self.config_model)
             self.engine = CrawlEngine(self.config_model, self.store, lambda event, payload: self.events.put((event, payload)))
             self.events.put(("stats", asdict(self.engine.stats)))
@@ -216,10 +281,16 @@ class CrawlerApp(tk.Tk):
                 self.state_label.configure(text=str(payload.value if hasattr(payload, "value") else payload).replace("_", " ").title())
             elif event == "stats" and isinstance(payload, dict):
                 self.card_values["pages"].configure(text=f"{payload.get('visited_pages', 0):,}")
+                self.card_values["queued"].configure(text=f"{payload.get('pending_urls', 0):,}")
+                self.card_values["active"].configure(text=f"{payload.get('active_urls', 0):,}")
                 self.card_values["comments"].configure(text=f"{payload.get('unique_comments', 0):,}")
                 self.card_values["speed"].configure(text=f"{payload.get('current_speed', 0):.1f}")
                 self.card_values["storage"].configure(text=f"{payload.get('storage_bytes', 0) / 1_000_000:.1f} MB")
                 self.card_values["errors"].configure(text=f"{payload.get('errors', 0):,}")
+            elif event == "workers" and isinstance(payload, list):
+                self._render_workers(payload)
+            elif event == "queue" and isinstance(payload, dict):
+                self._render_queue(payload)
             elif event == "activity":
                 self.activity.insert("", "end", values=("now", str(payload)))
                 children = self.activity.get_children()
