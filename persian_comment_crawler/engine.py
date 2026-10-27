@@ -55,7 +55,6 @@ class CrawlEngine:
             self._pause_event.clear()
             self.store.budget.ensure_capacity(0)
             self.store.start_session(self.config)
-            self._seed_urls()
             self._started_at = time.monotonic()
             self.state = CrawlState.RUNNING
             self.store.set_session_state(self.state)
@@ -171,6 +170,8 @@ class CrawlEngine:
     def _run(self) -> None:
         self._executor = ThreadPoolExecutor(max_workers=self.config.concurrency, thread_name_prefix="crawler-worker")
         try:
+            self.emit("activity", "Starting discovery…")
+            self._seed_urls()
             futures = set()
             while not self._stop_event.is_set():
                 if self.config.safe_test_mode and time.monotonic() - self._started_at >= self.config.test_duration_seconds:
