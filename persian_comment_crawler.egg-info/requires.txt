@@ -1,0 +1,7 @@
+certifi>=2024.2.2
+
+[dev]
+pytest>=8.0
+
+[render]
+playwright>=1.40

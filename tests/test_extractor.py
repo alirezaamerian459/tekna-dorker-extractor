@@ -27,3 +27,12 @@ class ExtractorTests(unittest.TestCase):
         html = '<script type="application/ld+json">{"@type":"Comment","text":"این نظر از داده ساختاریافته است"}</script>'
         result = extract_page(html, "https://example.org/post")
         self.assertEqual(result.comments[0].method, "schema.org-jsonld")
+
+    def test_ignores_comment_submission_form_labels(self):
+        html = """
+        <section id="comments"><form id="commentform">
+          <label>دیدگاهتان را بنویسید</label><label>نشانی ایمیل شما منتشر نخواهد شد</label>
+        </form></section>
+        """
+        result = extract_page(html, "https://example.org/post")
+        self.assertEqual(result.comments, ())

@@ -13,6 +13,11 @@ from .persian import classify_persian
 COMMENT_HINTS = ("comment", "comments", "comment-body", "comment-content", "review", "reply", "discussion", "نظر", "دیدگاه", "پاسخ")
 TEXT_HINTS = ("comment-body", "comment-content", "comment-text", "review-text", "review-body", "entry-content", "text")
 DATE_HINTS = ("date", "time", "published")
+FORM_TEXT_HINTS = (
+    "دیدگاهتان را بنویسید", "دیدگاه *", "نشانی ایمیل", "ذخیره نام و ایمیل",
+    "اشتراک‌گذاری", "اشتراک گذاری", "بستن", "نام *", "ایمیل *",
+    "leave a reply", "your email address", "required fields",
+)
 
 
 @dataclass(slots=True)
@@ -89,6 +94,15 @@ def _node_has_hint(node: Node, hints: tuple[str, ...]) -> bool:
     return any(hint in marker for hint in hints)
 
 
+def _has_ancestor_tag(node: Node, tags: set[str]) -> bool:
+    parent = node.parent
+    while parent is not None:
+        if parent.tag in tags:
+            return True
+        parent = parent.parent
+    return False
+
+
 def _find_attr(node: Node, names: tuple[str, ...]) -> str | None:
     for candidate in _walk(node):
         for name in names:
@@ -124,6 +138,8 @@ def _extract_from_candidate(node: Node, base_url: str, method: str) -> Extracted
     text = re.sub(r"\s+", " ", text).strip()
     if len(text) < 2 or len(text) > 10_000:
         return None
+    if any(marker in text.casefold() for marker in FORM_TEXT_HINTS):
+        return None
     result = classify_persian(text)
     if result.language not in {"fa", "uncertain"}:
         return None
@@ -149,7 +165,7 @@ def extract_page(html: str, page_url: str) -> PageExtraction:
     comments = _json_ld_comments(parser)
     candidates: list[Node] = []
     for node in _walk(parser.root):
-        if node.tag in {"script", "style", "nav", "header", "footer", "form"}:
+        if node.tag in {"script", "style", "nav", "header", "footer", "form"} or _has_ancestor_tag(node, {"form"}):
             continue
         marker = node.marker()
         if any(hint in marker for hint in COMMENT_HINTS):
