@@ -1,2 +1,0 @@
-[console_scripts]
-persian-comment-crawler = persian_comment_crawler.main:main

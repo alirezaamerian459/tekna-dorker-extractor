@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 import socket
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 
 class UnsafeUrl(ValueError):
@@ -27,8 +27,9 @@ def normalize_url(raw: str) -> str:
     hostname = parts.hostname.encode("idna").decode("ascii").lower().rstrip(".")
     if not hostname or hostname == "localhost" or hostname.endswith(".localhost"):
         raise UnsafeUrl("local hostnames are not allowed")
-    path = parts.path or "/"
-    return urlunsplit((parts.scheme.lower(), hostname + (f":{port}" if port else ""), path, parts.query, ""))
+    path = quote(parts.path or "/", safe="/%:@!$&'()*+,;=-._~")
+    query = quote(parts.query, safe="/%:@!$&'()*+,;=-._~?=")
+    return urlunsplit((parts.scheme.lower(), hostname + (f":{port}" if port else ""), path, query, ""))
 
 
 def is_private_hostname(hostname: str) -> bool:

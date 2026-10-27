@@ -191,9 +191,10 @@ class SQLiteStore:
             cur = db.execute("UPDATE discovered_urls SET status='pending' WHERE status='active' OR (status='error' AND attempts <= ?)", (max(0, max_retries),))
             return int(cur.rowcount)
 
-    def complete_url(self, url: str, error: str | None = None) -> None:
+    def complete_url(self, url: str, error: str | None = None, status: str | None = None) -> None:
         with self.transaction() as db:
-            db.execute("UPDATE discovered_urls SET status=?,visited_at=?,last_error=? WHERE url=?", ("error" if error else "done", utc_now(), error, url))
+            final_status = status or ("error" if error else "done")
+            db.execute("UPDATE discovered_urls SET status=?,visited_at=?,last_error=? WHERE url=?", (final_status, utc_now(), error, url))
 
     def save_comment(self, record: CommentRecord, source_context: str = "") -> bool:
         normalized = record.text.strip()

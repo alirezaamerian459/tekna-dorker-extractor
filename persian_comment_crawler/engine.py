@@ -230,6 +230,11 @@ class CrawlEngine:
     def _process_url(self, url: str) -> None:
         if self._stop_event.is_set():
             return
+        if urlsplit(url).path.lower().endswith((".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".zip", ".rar", ".7z", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".mp4", ".mp3")):
+            self.store.complete_url(url, status="skipped")
+            self.store.record_attempt(url, "asset-filter", 0, True, "non-HTML asset skipped")
+            self.emit("activity", f"Skipped non-HTML asset: {url}")
+            return
         domain = (urlsplit(url).hostname or "").lower()
         elapsed = time.monotonic() - self._last_domain_request[domain]
         if elapsed < self.config.domain_cooldown_seconds:
@@ -254,6 +259,11 @@ class CrawlEngine:
         self.stats.active_requests = max(0, self.stats.active_requests - 1)
         self.stats.visited_pages += 1
         if result.error:
+            if result.error == "non-text content skipped":
+                self.store.complete_url(url, status="skipped")
+                self.store.record_attempt(url, "http", 0, True, result.error)
+                self.emit("activity", f"Skipped non-text content: {url}")
+                return
             self.stats.errors += 1
             self.store.complete_url(url, result.error)
             self.store.record_attempt(url, "http", 0, False, result.error)
