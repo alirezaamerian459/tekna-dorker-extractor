@@ -11,7 +11,7 @@ from .persian import classify_persian
 
 
 COMMENT_HINTS = ("comment", "comments", "comment-body", "comment-content", "review", "reply", "discussion", "نظر", "دیدگاه", "پاسخ")
-TEXT_HINTS = ("comment-body", "comment-content", "comment-text", "review-text", "review-body", "ribbon-content", "entry-content", "text")
+TEXT_HINTS = ("comment-body", "comment-content", "comment-text", "review-text", "review-body", "ribbon-content", "appcomment__body", "app-comment-body", "entry-content", "text")
 DATE_HINTS = ("date", "time", "published")
 FORM_TEXT_HINTS = (
     "دیدگاهتان را بنویسید", "دیدگاه *", "نشانی ایمیل", "ذخیره نام و ایمیل",
@@ -30,14 +30,19 @@ COMMENT_NOISE_PHRASES = (
     "comments are closed",
     "write a comment",
     "leave a reply",
+    "تولید شده با هوش مصنوعی",
+    "خلاصه نظرات",
+    "نظرات کاربران",
 )
 COMMENT_NOISE_PATTERNS = (
     re.compile(r"^[0-9۰-۹]+\s*(?:دیدگاه|comments?)$", re.IGNORECASE),
+    re.compile(r"^[0-9۰-۹]+(?:[.,][0-9۰-۹]+)?\s*از\s*[0-9۰-۹]+$", re.IGNORECASE),
+    re.compile(r"^[0-9۰-۹]+\s*(?:ستاره|star)s?$", re.IGNORECASE),
     re.compile(r"^[0-9۰-۹]+(?:\s+[0-9۰-۹]+)?\s*(?:پاسخ|reply)?\s*(?:[0-9۰-۹]+\s*)?(?:روز|هفته|ماه|سال)\s*(?:پیش|ago)?$", re.IGNORECASE),
     re.compile(r"^(?:[0-9۰-۹]+\s*)?(?:روز|هفته|ماه|سال)\s*(?:پیش|ago)$", re.IGNORECASE),
 )
 STRONG_TEXT_HINTS = (
-    "comment-body", "comment-content", "comment-text", "review-text", "review-body", "ribbon-content", "commenttext",
+    "comment-body", "comment-content", "comment-text", "review-text", "review-body", "ribbon-content", "appcomment__body", "app-comment-body", "commenttext",
 )
 
 
@@ -155,6 +160,11 @@ def _has_strong_text_marker(node: Node | None) -> bool:
     return False
 
 
+def _contains_structured_comment(text: str, comments: list[ExtractedComment]) -> bool:
+    normalized = re.sub(r"\s+", " ", text).strip().casefold()
+    return any(len(existing.text) >= 20 and re.sub(r"\s+", " ", existing.text).strip().casefold() in normalized for existing in comments)
+
+
 def _json_ld_comments(parser: TreeParser) -> list[ExtractedComment]:
     results: list[ExtractedComment] = []
     for node in _walk(parser.root):
@@ -164,15 +174,33 @@ def _json_ld_comments(parser: TreeParser) -> list[ExtractedComment]:
             data = json.loads(node.text())
         except (ValueError, TypeError):
             continue
-        objects = data if isinstance(data, list) else [data]
+        if isinstance(data, list):
+            objects = data
+        elif isinstance(data, dict) and isinstance(data.get("@graph"), list):
+            objects = [data, *data["@graph"]]
+        else:
+            objects = [data]
         for item in objects:
             if not isinstance(item, dict):
                 continue
-            if str(item.get("@type", "")).lower() != "comment":
-                continue
-            text = str(item.get("text") or item.get("commentText") or "").strip()
-            if text and not _is_noise_text(text):
-                results.append(ExtractedComment(text, item.get("url"), item.get("datePublished"), item.get("identifier"), .98, "schema.org-jsonld"))
+            types = item.get("@type", "")
+            type_names = {str(value).lower() for value in types} if isinstance(types, list) else {str(types).lower()}
+            candidates: list[tuple[dict, str, str]] = []
+            if "comment" in type_names:
+                candidates.append((item, str(item.get("text") or item.get("commentText") or ""), "schema.org-jsonld"))
+            if "review" in type_names:
+                candidates.append((item, str(item.get("reviewBody") or item.get("reviewText") or item.get("text") or ""), "schema.org-review"))
+            nested_reviews = item.get("review") or item.get("reviews") or []
+            if isinstance(nested_reviews, dict):
+                nested_reviews = [nested_reviews]
+            if isinstance(nested_reviews, list):
+                for review in nested_reviews:
+                    if isinstance(review, dict):
+                        candidates.append((review, str(review.get("reviewBody") or review.get("reviewText") or review.get("text") or ""), "schema.org-review"))
+            for candidate, raw_text, method in candidates:
+                text = raw_text.strip()
+                if text and not _is_noise_text(text):
+                    results.append(ExtractedComment(text, candidate.get("url"), candidate.get("datePublished") or candidate.get("dateCreated"), candidate.get("identifier") or candidate.get("@id"), .98, method))
     return results
 
 
@@ -217,6 +245,8 @@ def extract_page(html: str, page_url: str) -> PageExtraction:
         if node.tag in {"script", "style", "nav", "header", "footer", "form"} or _has_ancestor_tag(node, {"form"}):
             continue
         marker = node.marker()
+        if any(noise in marker for noise in ("review-summary", "aggregate-rating", "app-rating", "rating-summary")):
+            continue
         if any(hint in marker for hint in COMMENT_HINTS):
             candidates.append(node)
 
@@ -227,7 +257,7 @@ def extract_page(html: str, page_url: str) -> PageExtraction:
     for candidate in candidates:
         extracted = _extract_from_candidate(candidate, page_url, "html-heuristic")
         key = re.sub(r"\s+", " ", extracted.text).strip().casefold() if extracted else ""
-        if extracted and key not in seen:
+        if extracted and key not in seen and not _contains_structured_comment(extracted.text, comments):
             comments.append(extracted)
             seen.add(key)
 

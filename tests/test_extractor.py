@@ -28,6 +28,17 @@ class ExtractorTests(unittest.TestCase):
         result = extract_page(html, "https://example.org/post")
         self.assertEqual(result.comments[0].method, "schema.org-jsonld")
 
+    def test_extracts_nested_app_reviews_but_not_ratings(self):
+        html = """
+        <script type="application/ld+json">
+        {"@type":"SoftwareApplication","aggregateRating":{"ratingValue":4.3},
+         "review":[{"@type":"Review","reviewBody":"این برنامه خیلی کاربردی است"},
+                    {"@type":"Review","reviewBody":"۳.۹ از ۵"}]}
+        </script>
+        """
+        result = extract_page(html, "https://myket.ir/app/com.example")
+        self.assertEqual([item.text for item in result.comments], ["این برنامه خیلی کاربردی است"])
+
     def test_ignores_comment_submission_form_labels(self):
         html = """
         <section id="comments"><form id="commentform">

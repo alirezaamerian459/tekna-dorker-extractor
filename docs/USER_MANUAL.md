@@ -9,4 +9,6 @@
 
 The crawler keeps link expansion bounded: it prioritizes article/news paths, skips known assets and low-value navigation, queues at most 30 links from a page, and stops expanding a domain after 30 pages with no valid comments. It also filters reply controls, dates, counters, and empty-comment placeholders before saving.
 
+High-yield targets include public app/product/review surfaces on CafeBazaar, Myket, Digikala, Torob, Soft98, and VGDL. The crawler reads only public pages and review markup; it does not log in, submit reviews, download binaries, or bypass access controls.
+
 The crawler is designed for public, authorized research. Do not add private URLs, authenticated pages, or sites that explicitly disallow crawling. A missing or unavailable robots file is treated as a bounded, logged request condition; it is not a reason to increase concurrency or bypass access controls.

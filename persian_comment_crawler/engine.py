@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 from urllib.robotparser import RobotFileParser
 
 from .config import CrawlConfig
-from .discovery import BingSearchProvider, CommonCrawlProvider, TrancoProvider, default_search_queries, discovery_candidates
+from .discovery import FOCUSED_ENTRYPOINTS, BingSearchProvider, CommonCrawlProvider, TrancoProvider, default_search_queries, discovery_candidates
 from .extractor import extract_page
 from .fetcher import UrlFetcher
 from .models import CommentRecord, CrawlState, CrawlStats, utc_now
@@ -140,6 +140,7 @@ class CrawlEngine:
             reprioritized = self.store.reprioritize_pending(self._priority_for_url)
             if reprioritized:
                 self.emit("activity", f"Applied popularity tiers to {reprioritized} queued URL(s)")
+            self._seed_focused_targets()
         if self.store.has_pending_urls():
             # Keep a small high-yield refresh on every session so an older
             # backlog cannot starve newly ranked popular domains.
@@ -203,6 +204,15 @@ class CrawlEngine:
             self.emit("activity", f"Tranco unavailable: {self.tranco_provider.last_error}")
         else:
             self.emit("activity", f"Tranco returned {len(popular_urls)} popular .ir domains")
+
+    def _seed_focused_targets(self) -> None:
+        for raw_url, source, priority in FOCUSED_ENTRYPOINTS:
+            try:
+                url = normalize_url(raw_url)
+            except UnsafeUrl:
+                continue
+            if self.store.upsert_url(url, source, priority):
+                self.emit("activity", f"Queued focused target: {url}")
 
     def _priority_for_url(self, url: str, fallback: int) -> int:
         if not self.config.auto_ir_discovery:

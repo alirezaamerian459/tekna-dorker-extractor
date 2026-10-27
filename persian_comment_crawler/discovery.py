@@ -11,9 +11,20 @@ import urllib.request
 from urllib.parse import urljoin, urlsplit
 
 
-NON_HTML_EXTENSIONS = (".7z", ".avi", ".csv", ".doc", ".docx", ".gif", ".gz", ".jpeg", ".jpg", ".m4a", ".mkv", ".mov", ".mp3", ".mp4", ".pdf", ".png", ".ppt", ".pptx", ".rar", ".svg", ".tar", ".webm", ".webp", ".xls", ".xlsx", ".xml.zip", ".zip")
+NON_HTML_EXTENSIONS = (".7z", ".aab", ".apk", ".avi", ".bin", ".csv", ".dmg", ".doc", ".docx", ".exe", ".gif", ".gz", ".iso", ".jpeg", ".jpg", ".m4a", ".mkv", ".mov", ".msi", ".mp3", ".mp4", ".pdf", ".png", ".ppt", ".pptx", ".rar", ".svg", ".tar", ".webm", ".webp", ".xls", ".xlsx", ".xml.zip", ".zip")
 LOW_VALUE_PATH_PARTS = {"amp", "archive", "author", "category", "feed", "login", "page", "register", "search", "tag", "tags", "wp-admin", "wp-json"}
 HIGH_VALUE_PATH_PARTS = {"article", "articles", "blog", "news", "post", "posts", "review", "reviews", "single", "single-tracks"}
+APP_STORE_DOMAINS = {"cafebazaar.ir", "myket.ir"}
+FOCUSED_DOMAINS = APP_STORE_DOMAINS | {"digikala.com", "torob.com", "soft98.ir", "vgdl.ir"}
+FOCUSED_ENTRYPOINTS = (
+    ("https://cafebazaar.ir/app", "focused-app-store", 12),
+    ("https://myket.ir/apps", "focused-app-store", 12),
+    ("https://myket.ir/games", "focused-app-store", 12),
+    ("https://www.digikala.com/", "focused-marketplace", 18),
+    ("https://torob.com/", "focused-marketplace", 18),
+    ("https://soft98.ir/", "focused-software", 18),
+    ("https://vgdl.ir/", "focused-games", 18),
+)
 
 
 class FeedLinkParser(HTMLParser):
@@ -30,7 +41,8 @@ class FeedLinkParser(HTMLParser):
 
 
 def same_domain(url: str, domain: str) -> bool:
-    hostname = (urlsplit(url).hostname or "").lower()
+    hostname = (urlsplit(url).hostname or "").lower().removeprefix("www.")
+    domain = domain.lower().removeprefix("www.")
     return hostname == domain or hostname.endswith(f".{domain}")
 
 
@@ -38,8 +50,23 @@ def link_priority(url: str, default: int = 50) -> int | None:
     """Return a crawl priority, or None for a known non-HTML asset."""
     parts = urlsplit(url)
     path = parts.path.lower()
-    if path.endswith(NON_HTML_EXTENSIONS) or parts.query.lower().startswith(("replytocom=", "amp=1")):
+    sitemap_gzip = path.endswith(".gz") and ("sitemap" in path or "site-map" in path)
+    if (path.endswith(NON_HTML_EXTENSIONS) and not sitemap_gzip) or parts.query.lower().startswith(("replytocom=", "amp=1")):
         return None
+    if sitemap_gzip:
+        return min(default, 18)
+    hostname = (parts.hostname or "").lower().removeprefix("www.")
+    if hostname in APP_STORE_DOMAINS:
+        if path.startswith("/app/"):
+            return 12
+        if path in {"/app", "/apps", "/games"} or path.startswith(("/apps/", "/games/")):
+            return 18
+    if hostname == "digikala.com" and path.startswith("/product/"):
+        return 12
+    if hostname == "torob.com" and path.startswith("/p/"):
+        return 12
+    if hostname in FOCUSED_DOMAINS:
+        return min(default, 22)
     segments = {segment for segment in path.split("/") if segment}
     if segments & LOW_VALUE_PATH_PARTS:
         return 80

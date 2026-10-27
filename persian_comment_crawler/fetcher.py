@@ -7,6 +7,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from .config import CrawlConfig
 from .policy import validate_public_url
@@ -42,13 +43,23 @@ class UrlFetcher:
             request = urllib.request.Request(safe_url, headers={"User-Agent": self.config.user_agent, "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,application/rss+xml;q=0.8"})
             with urllib.request.urlopen(request, timeout=self.config.request_timeout_seconds, context=certificate_context()) as response:
                 content_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
-                if content_type and not any(part in content_type for part in ("text/", "xml", "json", "javascript")):
+                path = urlsplit(safe_url).path.lower()
+                sitemap_gzip = path.endswith(".gz") and ("sitemap" in path or "site-map" in path)
+                if content_type and not sitemap_gzip and not any(part in content_type for part in ("text/", "xml", "json", "javascript")):
                     return FetchResult(safe_url, int(response.status), content_type, b"", "non-text content skipped", time.monotonic() - started)
                 body = response.read(self.config.max_response_bytes + 1)
                 if len(body) > self.config.max_response_bytes:
                     return FetchResult(safe_url, int(response.status), content_type, b"", "response size limit reached", time.monotonic() - started)
                 if response.headers.get("Content-Encoding", "").lower() == "gzip":
                     body = gzip.GzipFile(fileobj=io.BytesIO(body)).read(self.config.max_response_bytes)
+                if sitemap_gzip:
+                    try:
+                        body = gzip.GzipFile(fileobj=io.BytesIO(body)).read(self.config.max_response_bytes + 1)
+                    except (OSError, EOFError):
+                        return FetchResult(safe_url, int(response.status), content_type, b"", "invalid sitemap gzip", time.monotonic() - started)
+                    content_type = "text/xml"
+                if len(body) > self.config.max_response_bytes:
+                    return FetchResult(safe_url, int(response.status), content_type, b"", "response size limit reached", time.monotonic() - started)
                 return FetchResult(safe_url, int(response.status), content_type, body, None, time.monotonic() - started)
         except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, ValueError) as exc:
             return FetchResult(url, 0, "", b"", str(exc)[:300], time.monotonic() - started)
