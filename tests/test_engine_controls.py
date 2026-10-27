@@ -34,7 +34,7 @@ class EngineControlTests(unittest.TestCase):
             with self.subTest("crawl"):
                 import tempfile
                 with tempfile.TemporaryDirectory() as directory:
-                    config = CrawlConfig(data_root=Path(directory) / "data", seed_urls=[f"http://127.0.0.1:{server.server_port}/"], minimum_free_disk_bytes=0, domain_cooldown_seconds=0)
+                    config = CrawlConfig(data_root=Path(directory) / "data", seed_urls=[f"http://127.0.0.1:{server.server_port}/"], auto_ir_discovery=False, minimum_free_disk_bytes=0, domain_cooldown_seconds=0)
                     store = SQLiteStore(config.data_root, config)
                     engine = CrawlEngine(config, store)
                     with patch("persian_comment_crawler.fetcher.validate_public_url", side_effect=lambda url: url), patch.object(engine, "_allowed_by_robots", return_value=True):

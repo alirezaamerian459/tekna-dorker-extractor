@@ -76,6 +76,59 @@ class SearchProvider:
         return []
 
 
+class CommonCrawlProvider:
+    """Discover archived URLs from Common Crawl without an account or key."""
+
+    index_catalog_url = "https://index.commoncrawl.org/collinfo.json"
+
+    def __init__(self, user_agent: str = "PersianCommentCrawler/0.1", timeout: int = 20) -> None:
+        self.user_agent = user_agent
+        self.timeout = timeout
+
+    def latest_index(self) -> str | None:
+        request = urllib.request.Request(self.index_catalog_url, headers={"User-Agent": self.user_agent, "Accept": "application/json"})
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                values = json.loads(response.read(1_000_000).decode("utf-8", errors="replace"))
+        except Exception:
+            return None
+        if not isinstance(values, list):
+            return None
+        for item in values:
+            if isinstance(item, dict) and (item.get("id") or item.get("name")):
+                return str(item.get("id") or item.get("name"))
+        return None
+
+    def discover_ir(self, limit: int = 100) -> list[str]:
+        index_name = self.latest_index()
+        if not index_name:
+            return []
+        params = urllib.parse.urlencode({
+            "url": "*.ir/*",
+            "output": "json",
+            "filter": "status:200",
+            "collapse": "urlkey",
+            "limit": max(1, min(limit, 500)),
+        })
+        endpoint = f"https://index.commoncrawl.org/{urllib.parse.quote(index_name)}-index?{params}"
+        request = urllib.request.Request(endpoint, headers={"User-Agent": self.user_agent, "Accept": "application/json"})
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                raw = response.read(4_000_000).decode("utf-8", errors="replace")
+        except Exception:
+            return []
+        urls: list[str] = []
+        for line in raw.splitlines():
+            try:
+                record = json.loads(line)
+            except (TypeError, ValueError):
+                continue
+            value = record.get("url", "") if isinstance(record, dict) else ""
+            if value.startswith(("http://", "https://")) and (urllib.parse.urlsplit(value).hostname or "").lower().endswith(".ir"):
+                urls.append(value)
+        return list(dict.fromkeys(urls))
+
+
 class BingSearchProvider(SearchProvider):
     """Use Bing Web Search only when the user supplies an API key.
 

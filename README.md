@@ -60,4 +60,4 @@ The original browser-only dorker interface remains in `index.html`, `styles.css`
 
 ## Automatic `.ir` discovery
 
-Enable **Automatically discover .ir websites** in the desktop app and enter a Bing Web Search API key. The key may also be supplied as `BING_SEARCH_API_KEY`. The app calls the documented JSON API, never scrapes a search-results page, filters returned URLs to the `.ir` country-code domain, and does not claim complete coverage. The key is used in memory and is redacted from session configuration files.
+Enable **Automatically discover .ir websites** in the desktop app. The app queries the free Common Crawl URL Index without an account or API key, filters returned URLs to the `.ir` country-code domain, and then crawls those public pages. This is archival discovery, so it may miss newer websites. An optional Bing Web Search API key can add live results; it may also be supplied as `BING_SEARCH_API_KEY`. The app calls the documented JSON API, never scrapes a search-results page, and redacts the key from session configuration files.

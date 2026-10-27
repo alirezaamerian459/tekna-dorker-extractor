@@ -89,7 +89,7 @@ class CrawlerApp(tk.Tk):
         ttk.Label(left, text="Bing Web Search API key (optional)", style="Muted.TLabel").pack(anchor="w")
         self.search_key_var = tk.StringVar()
         ttk.Entry(left, textvariable=self.search_key_var, show="•").pack(fill="x", pady=(5, 3))
-        ttk.Label(left, text="Required for automatic search-engine discovery; never written to the database.", style="Muted.TLabel", wraplength=400).pack(anchor="w", pady=(0, 11))
+        ttk.Label(left, text="Optional live-search boost. Common Crawl discovery works without a key; this key is never written to the database.", style="Muted.TLabel", wraplength=400).pack(anchor="w", pady=(0, 11))
 
         ttk.Label(left, text="Managed data directory", style="Muted.TLabel").pack(anchor="w")
         data_row = ttk.Frame(left, style="Card.TFrame")

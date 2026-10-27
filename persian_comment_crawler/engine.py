@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 from urllib.robotparser import RobotFileParser
 
 from .config import CrawlConfig
-from .discovery import BingSearchProvider, default_search_queries, discovery_candidates
+from .discovery import BingSearchProvider, CommonCrawlProvider, default_search_queries, discovery_candidates
 from .extractor import extract_page
 from .fetcher import UrlFetcher
 from .models import CommentRecord, CrawlState, CrawlStats, utc_now
@@ -30,6 +30,7 @@ class CrawlEngine:
         self.on_event = on_event or (lambda event, payload: None)
         self.fetcher = UrlFetcher(config)
         self.search_provider = BingSearchProvider(config.search_api_key or None)
+        self.common_crawl_provider = CommonCrawlProvider(config.user_agent, config.request_timeout_seconds)
         self.state = CrawlState.IDLE
         self.stats = CrawlStats(remaining_storage_bytes=store.budget.remaining())
         self._pause_event = threading.Event()
@@ -120,6 +121,14 @@ class CrawlEngine:
                     except UnsafeUrl:
                         continue
                     self.store.upsert_url(safe, f"{self.search_provider.name}: {query}", 25)
+        if self.config.auto_ir_discovery:
+            self.emit("activity", "Discovering archived .ir pages through Common Crawl")
+            for url in self.common_crawl_provider.discover_ir(limit=max(50, self.config.search_results_per_query * 5)):
+                try:
+                    safe = normalize_url(url)
+                except UnsafeUrl:
+                    continue
+                self.store.upsert_url(safe, "common-crawl-index", 35)
         if not self.config.seed_urls and not self.store.has_pending_urls():
             if self.config.auto_ir_discovery and not self.search_provider.enabled:
                 self.emit("activity", "Automatic .ir discovery needs a permitted Bing API key; add BING_SEARCH_API_KEY or enter one in the app")

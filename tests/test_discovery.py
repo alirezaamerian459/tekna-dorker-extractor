@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from persian_comment_crawler.config import CrawlConfig
-from persian_comment_crawler.discovery import BingSearchProvider
+from persian_comment_crawler.discovery import BingSearchProvider, CommonCrawlProvider
 
 
 class DiscoveryTests(unittest.TestCase):
@@ -15,3 +15,20 @@ class DiscoveryTests(unittest.TestCase):
         raw = CrawlConfig(search_api_key="secret").to_json()
         self.assertNotIn("secret", raw)
         self.assertIn("[configured]", raw)
+
+    def test_common_crawl_provider_filters_to_ir(self):
+        provider = CommonCrawlProvider()
+        provider.latest_index = lambda: "CC-MAIN-test"  # type: ignore[method-assign]
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _size):
+                return b'{"url":"https://one.ir/a"}\n{"url":"https://example.com/b"}\n{"url":"https://two.ir/c"}'
+
+        with patch("persian_comment_crawler.discovery.urllib.request.urlopen", return_value=Response()):
+            self.assertEqual(provider.discover_ir(), ["https://one.ir/a", "https://two.ir/c"])
