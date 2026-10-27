@@ -26,6 +26,20 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class EngineControlTests(unittest.TestCase):
+    def test_catalog_and_sitemap_links_bypass_ordinary_link_cap(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            config = CrawlConfig(data_root=Path(directory) / "data", auto_ir_discovery=False, minimum_free_disk_bytes=0, max_links_per_page=30)
+            store = SQLiteStore(config.data_root, config)
+            engine = CrawlEngine(config, store)
+            candidates = [(f"https://www.digikala.com/product/dkp-{index}", "internal-link", 5) for index in range(40)]
+            candidates.extend((f"https://example.ir/ordinary/{index}", "internal-link", 50) for index in range(40))
+            selected = engine._select_candidates("https://www.digikala.com/", "text/html", candidates)
+            self.assertEqual(len(selected), 70)
+            sitemap_candidates = [(f"https://dkstatics-public.digikala.com/digikala-site-map/part-{index}.gz", "sitemap-or-feed", 7) for index in range(100)]
+            self.assertEqual(len(engine._select_candidates("https://www.digikala.com/sitemap.xml", "text/xml", sitemap_candidates)), 100)
+            store.close()
+
     def test_local_fixture_crawl_and_stop_checkpoint(self):
         server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)

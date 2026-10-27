@@ -28,6 +28,8 @@ FOCUSED_ENTRYPOINTS = (
     ("https://vgdl.ir/", "focused-games", 3),
 )
 
+CATALOG_PATH_PARTS = {"app", "apps", "application", "applications", "game", "games", "item", "items", "product", "products", "software", "softwares"}
+
 
 class FeedLinkParser(HTMLParser):
     def __init__(self) -> None:
@@ -46,6 +48,27 @@ def same_domain(url: str, domain: str) -> bool:
     hostname = (urlsplit(url).hostname or "").lower().removeprefix("www.")
     domain = domain.lower().removeprefix("www.")
     return hostname == domain or hostname.endswith(f".{domain}")
+
+
+def is_sitemap_page(url: str, content_type: str = "") -> bool:
+    path = urlsplit(url).path.lower()
+    content_type = content_type.lower()
+    return "xml" in content_type or path.endswith((".xml", "sitemap")) or (path.endswith(".gz") and ("sitemap" in path or "site-map" in path))
+
+
+def is_catalog_url(url: str) -> bool:
+    """Return True for app/product/game URLs worth expanding without a link cap."""
+    parts = urlsplit(url)
+    hostname = (parts.hostname or "").lower().removeprefix("www.")
+    path = urllib.parse.unquote(parts.path.lower())
+    if hostname in APP_STORE_DOMAINS and path.startswith("/app/"):
+        return True
+    if hostname == "digikala.com" and path.startswith("/product/"):
+        return True
+    if hostname == "torob.com" and path.startswith("/p/"):
+        return True
+    segments = {segment for segment in path.split("/") if segment}
+    return bool(segments & CATALOG_PATH_PARTS)
 
 
 def link_priority(url: str, default: int = 50) -> int | None:
@@ -116,7 +139,7 @@ def extract_feed_urls(xml_text: str) -> list[str]:
 
 def discovery_candidates(page_url: str, response_text: str, content_type: str = "") -> Iterable[tuple[str, str, int]]:
     content_type = content_type.lower()
-    if "xml" in content_type or page_url.lower().endswith((".xml", "sitemap")):
+    if is_sitemap_page(page_url, content_type):
         for url in extract_sitemap_urls(response_text):
             priority = link_priority(url, 20)
             if priority is not None:

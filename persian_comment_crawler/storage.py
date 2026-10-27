@@ -9,7 +9,7 @@ import tempfile
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Callable, Iterator
+from typing import Callable, Iterable, Iterator
 from urllib.parse import urlsplit
 
 from .config import CrawlConfig
@@ -162,17 +162,27 @@ class SQLiteStore:
             )
 
     def upsert_url(self, url: str, source: str, priority: int = 50) -> bool:
-        domain = (urlsplit(url).hostname or "").lower()
+        return bool(self.upsert_urls(((url, source, priority),)))
+
+    def upsert_urls(self, rows: Iterable[tuple[str, str, int]]) -> int:
+        """Insert a batch of discovered URLs in one transaction."""
+        values = list(rows)
+        if not values:
+            return 0
         now = utc_now()
         with self.transaction() as db:
-            cur = db.execute(
-                "INSERT OR IGNORE INTO discovered_urls(url,domain,discovery_source,priority,discovered_at) VALUES(?,?,?,?,?)",
-                (url, domain, source, priority, now),
-            )
-            db.execute("INSERT OR IGNORE INTO domains(domain,first_seen,last_seen) VALUES(?,?,?)", (domain, now, now))
-            if cur.rowcount:
-                db.execute("UPDATE domains SET discovered_count=discovered_count+1,last_seen=? WHERE domain=?", (now, domain))
-            return bool(cur.rowcount)
+            inserted = 0
+            for url, source, priority in values:
+                domain = (urlsplit(url).hostname or "").lower()
+                cur = db.execute(
+                    "INSERT OR IGNORE INTO discovered_urls(url,domain,discovery_source,priority,discovered_at) VALUES(?,?,?,?,?)",
+                    (url, domain, source, priority, now),
+                )
+                db.execute("INSERT OR IGNORE INTO domains(domain,first_seen,last_seen) VALUES(?,?,?)", (domain, now, now))
+                if cur.rowcount:
+                    inserted += 1
+                    db.execute("UPDATE domains SET discovered_count=discovered_count+1,last_seen=? WHERE domain=?", (now, domain))
+            return inserted
 
     def claim_url(self) -> sqlite3.Row | None:
         with self.transaction() as db:

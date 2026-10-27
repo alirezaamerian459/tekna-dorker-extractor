@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from persian_comment_crawler.config import CrawlConfig
-from persian_comment_crawler.discovery import FOCUSED_ENTRYPOINTS, BingSearchProvider, CommonCrawlProvider, TrancoProvider, discovery_candidates, link_priority, same_domain
+from persian_comment_crawler.discovery import FOCUSED_ENTRYPOINTS, BingSearchProvider, CommonCrawlProvider, TrancoProvider, discovery_candidates, is_catalog_url, link_priority, same_domain
 
 
 class DiscoveryTests(unittest.TestCase):
@@ -22,6 +22,13 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(config.low_yield_domain_pages, 0)
         self.assertEqual(config.domain_cooldown_seconds, 2.0)
         self.assertEqual(config.inter_domain_cooldown_seconds, 2.0)
+        self.assertEqual(config.max_discovered_urls, 0)
+
+    def test_catalog_urls_are_expansion_priority(self):
+        self.assertTrue(is_catalog_url("https://cafebazaar.ir/app/com.example"))
+        self.assertTrue(is_catalog_url("https://www.digikala.com/product/dkp-1"))
+        self.assertTrue(is_catalog_url("https://torob.com/p/abc/widget/"))
+        self.assertFalse(is_catalog_url("https://example.ir/news/story"))
 
     def test_common_crawl_provider_filters_to_ir(self):
         provider = CommonCrawlProvider()

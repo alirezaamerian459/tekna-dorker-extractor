@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 from urllib.robotparser import RobotFileParser
 
 from .config import CrawlConfig
-from .discovery import FOCUSED_ENTRYPOINTS, BingSearchProvider, CommonCrawlProvider, TrancoProvider, default_search_queries, discovery_candidates, link_priority
+from .discovery import FOCUSED_ENTRYPOINTS, BingSearchProvider, CommonCrawlProvider, TrancoProvider, default_search_queries, discovery_candidates, is_catalog_url, is_sitemap_page, link_priority
 from .extractor import extract_page
 from .fetcher import UrlFetcher
 from .models import CommentRecord, CrawlState, CrawlStats, utc_now
@@ -22,6 +22,7 @@ from .storage import SQLiteStore, StorageBudgetExceeded
 
 
 NON_CONTENT_HOST_PREFIXES = ("ads", "assets", "cdn", "dl", "download", "img", "images", "media", "static", "video", "vod")
+URL_INSERT_BATCH_SIZE = 1_000
 
 
 class CrawlEngine:
@@ -268,6 +269,20 @@ class CrawlEngine:
             self._last_request_domain = domain
             self._last_request_started = time.monotonic()
 
+    def _select_candidates(self, page_url: str, content_type: str, candidates: list[tuple[str, str, int]]) -> list[tuple[str, str, int]]:
+        """Keep all sitemap/catalog links; cap only ordinary navigation."""
+        selected: list[tuple[str, str, int]] = []
+        ordinary_count = 0
+        expand_all = is_sitemap_page(page_url, content_type)
+        for candidate in candidates:
+            discovered, source, _priority = candidate
+            if expand_all or source == "sitemap-or-feed" or is_catalog_url(discovered):
+                selected.append(candidate)
+            elif ordinary_count < self.config.max_links_per_page:
+                selected.append(candidate)
+                ordinary_count += 1
+        return selected
+
     def _run(self) -> None:
         self._executor = ThreadPoolExecutor(max_workers=self.config.concurrency, thread_name_prefix="crawler-worker")
         try:
@@ -377,14 +392,19 @@ class CrawlEngine:
                 if self.store.save_comment(CommentRecord(item.text, url, domain, item.comment_url, item.publication_date, item.method, item.confidence, item.platform_id)):
                     new_comments += 1
         candidates = sorted(discovery_candidates(url, text, result.content_type), key=lambda item: item[2])
-        for discovered, source, priority in candidates[: self.config.max_links_per_page]:
-            if self.store.count("discovered_urls") >= self.config.max_discovered_urls:
-                break
+        selected_candidates = self._select_candidates(url, result.content_type, candidates)
+        if self.config.max_discovered_urls:
+            remaining = max(0, self.config.max_discovered_urls - self.store.count("discovered_urls"))
+            selected_candidates = selected_candidates[:remaining]
+        discovered_rows: list[tuple[str, str, int]] = []
+        for discovered, source, priority in selected_candidates:
             try:
                 safe = normalize_url(discovered)
             except UnsafeUrl:
                 continue
-            self.store.upsert_url(safe, source, self._priority_for_url(safe, priority))
+            discovered_rows.append((safe, source, self._priority_for_url(safe, priority)))
+        for offset in range(0, len(discovered_rows), URL_INSERT_BATCH_SIZE):
+            self.store.upsert_urls(discovered_rows[offset : offset + URL_INSERT_BATCH_SIZE])
         self.store.record_attempt(url, page.method, len(page.comments), True)
         self.store.complete_url(url)
         self.stats.processed_pages += 1

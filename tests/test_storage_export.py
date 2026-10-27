@@ -21,6 +21,19 @@ class StorageExportTests(unittest.TestCase):
             self.assertEqual(store.reprioritize_pending(lambda _url, _priority: 15), 1)
             store.close()
 
+    def test_batch_url_insert_is_deduplicated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = CrawlConfig(data_root=Path(directory) / "data", minimum_free_disk_bytes=0)
+            store = SQLiteStore(config.data_root, config)
+            rows = [
+                ("https://example.ir/product/1", "sitemap-or-feed", 5),
+                ("https://example.ir/product/2", "sitemap-or-feed", 5),
+                ("https://example.ir/product/1", "sitemap-or-feed", 5),
+            ]
+            self.assertEqual(store.upsert_urls(rows), 2)
+            self.assertEqual(store.count("discovered_urls"), 2)
+            store.close()
+
     def test_reopens_urls_skipped_by_old_domain_limit(self):
         with tempfile.TemporaryDirectory() as directory:
             config = CrawlConfig(data_root=Path(directory) / "data", minimum_free_disk_bytes=0)

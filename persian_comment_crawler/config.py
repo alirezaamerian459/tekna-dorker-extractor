@@ -37,7 +37,9 @@ class CrawlConfig:
     # Zero disables the optional no-comments early-stop heuristic.
     low_yield_domain_pages: int = 0
     max_links_per_page: int = 30
-    max_discovered_urls: int = 20_000
+    # Zero disables the global discovered-URL cap. Session time, storage,
+    # robots, response-size, and comment safeguards still apply.
+    max_discovered_urls: int = 0
     export_rotation_bytes: int = 50_000_000
     user_agent: str = "PersianCommentCrawler/0.1 (+public-research; contact: local-user)"
     auto_ir_discovery: bool = True
@@ -58,6 +60,7 @@ class CrawlConfig:
         self.domain_cooldown_seconds = max(0.0, min(float(self.domain_cooldown_seconds), 300.0))
         self.inter_domain_cooldown_seconds = max(0.0, min(float(self.inter_domain_cooldown_seconds), 300.0))
         self.max_links_per_page = max(5, min(int(self.max_links_per_page), 200))
+        self.max_discovered_urls = max(0, min(int(self.max_discovered_urls), 10_000_000))
         self.storage_limit_bytes = max(1_000_000, int(self.storage_limit_bytes))
         self.minimum_free_disk_bytes = max(0, int(self.minimum_free_disk_bytes))
         self.data_root = Path(self.data_root).expanduser()
