@@ -14,7 +14,7 @@ Tkinter GUI -> CrawlEngine -> UrlFetcher -> HTML extractor
 ## Safety boundaries
 
 - `policy.py` accepts only HTTP(S), strips fragments, rejects embedded credentials, and rejects targets that resolve to private, loopback, link-local, reserved, or multicast IP addresses.
-- `engine.py` checks `robots.txt` before every page, uses a descriptive user agent, applies domain cooldowns, bounds response size and queue size, and never rotates identities or proxies.
+- `engine.py` checks `robots.txt` before every page, uses a descriptive user agent, applies adaptive per-domain cooldowns, bounds response size and queue size, and never rotates identities or proxies.
 - `storage.py` owns the managed data root, checks both the session allowance and minimum free disk space, and writes checkpoints atomically.
 - `exporter.py` sanitizes domain directory names and rotates UTF-8 output without overwriting an existing export.
 - `config.py` bounds per-page link expansion and per-domain crawl budgets so internal-link discovery cannot grow without limit.
@@ -29,7 +29,7 @@ SQLite uses WAL mode and explicit transactions. The `comments.record_id` hash is
 
 `render.py` is an optional Playwright adapter. It is not used automatically and has no authentication, CAPTCHA, download, or proxy behavior.
 
-Comment extraction applies a noise filter before persistence. Structured `Comment` data and explicit comment-body fields are preferred; common controls, dates, reply counters, and empty-comment prompts are rejected. Internal links receive a path-aware priority. Per-domain page and low-yield cutoffs are disabled by default so a later comment page is not missed. The scheduler assigns one active URL per host and fills the remaining worker lanes with different hosts, avoiding alphabet-bucket starvation; each host has its own cooldown while cross-host requests remain parallel. The global time, storage, queue, response-size, robots, and comment-count safeguards remain active.
+Comment extraction applies a noise filter before persistence. Structured `Comment` data and explicit comment-body fields are preferred; common controls, dates, reply counters, and empty-comment prompts are rejected. Internal links receive a path-aware priority. Per-domain page and low-yield cutoffs are disabled by default so a later comment page is not missed. The scheduler assigns one active URL per host and fills the remaining worker lanes with different hosts, avoiding alphabet-bucket starvation; each host has its own adaptive cooldown while cross-host requests remain parallel. Clean responses reduce that host's delay toward 0.5 seconds, while network failures, throttling statuses, and server errors double it up to eight seconds. The global time, storage, queue, response-size, robots, and comment-count safeguards remain active.
 
 The desktop dashboard mirrors this scheduler with worker-lane rows, a top-priority queue, focused-domain progress, persisted counters, storage usage, and recent activity. Runtime telemetry is emitted from the same queue/worker state used by the crawler so the UI does not invent progress values.
 

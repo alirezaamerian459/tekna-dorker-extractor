@@ -56,6 +56,9 @@ class CrawlEngine:
         self._executor: ThreadPoolExecutor | None = None
         self._robot_cache: dict[str, RobotFileParser | None] = {}
         self._last_domain_request: dict[str, float] = defaultdict(float)
+        self._domain_pacing_lock = threading.Lock()
+        self._domain_cooldowns: dict[str, float] = {}
+        self._completion_times: deque[float] = deque(maxlen=256)
         self._request_gate = threading.Lock()
         self._last_request_domain = ""
         self._last_request_started = 0.0
@@ -271,6 +274,40 @@ class CrawlEngine:
             self._last_request_domain = domain
             self._last_request_started = time.monotonic()
 
+    def _domain_delay(self, domain: str) -> float:
+        """Return the current adaptive delay for one host."""
+        with self._domain_pacing_lock:
+            return self._domain_cooldowns.get(domain, self.config.domain_cooldown_seconds)
+
+    def _update_domain_pacing(self, domain: str, result) -> None:
+        """Back off on throttling and converge clean hosts toward the floor."""
+        throttled = (
+            result.status == 0
+            or result.status in {403, 408, 425, 429}
+            or result.status >= 500
+        )
+        with self._domain_pacing_lock:
+            current = self._domain_cooldowns.get(domain, self.config.domain_cooldown_seconds)
+            if throttled:
+                next_delay = min(
+                    self.config.domain_max_cooldown_seconds,
+                    max(self.config.domain_cooldown_seconds, current * 2 or self.config.domain_min_cooldown_seconds),
+                )
+            else:
+                next_delay = max(self.config.domain_min_cooldown_seconds, current * 0.8)
+            self._domain_cooldowns[domain] = next_delay
+
+    def _record_completion(self) -> None:
+        """Maintain a rolling request rate for the live dashboard."""
+        now = time.monotonic()
+        with self._domain_pacing_lock:
+            self._completion_times.append(now)
+            while self._completion_times and now - self._completion_times[0] > 60:
+                self._completion_times.popleft()
+            if self._completion_times:
+                span = max(1.0, now - self._completion_times[0])
+                self.stats.current_speed = len(self._completion_times) / span
+
     def _select_candidates(self, page_url: str, content_type: str, candidates: list[tuple[str, str, int]]) -> list[tuple[str, str, int]]:
         """Keep all sitemap/catalog links; cap only ordinary navigation."""
         selected: list[tuple[str, str, int]] = []
@@ -378,8 +415,9 @@ class CrawlEngine:
             self.emit("activity", f"Skipped domain page limit: {url}")
             return
         elapsed = time.monotonic() - self._last_domain_request[domain]
-        if elapsed < self.config.domain_cooldown_seconds:
-            time.sleep(self.config.domain_cooldown_seconds - elapsed)
+        delay = self._domain_delay(domain)
+        if elapsed < delay:
+            time.sleep(delay - elapsed)
         self._last_domain_request[domain] = time.monotonic()
         self._wait_for_request_slot(domain)
         if not self._allowed_by_robots(url):
@@ -399,16 +437,18 @@ class CrawlEngine:
         self.stats.active_requests += 1
         result = self.fetcher.fetch(url)
         self.stats.active_requests = max(0, self.stats.active_requests - 1)
+        self._update_domain_pacing(domain, result)
+        self._record_completion()
         self.stats.visited_pages += 1
         if result.error:
             if result.error == "non-text content skipped":
                 self.store.complete_url(url, status="skipped")
-                self.store.record_attempt(url, "http", 0, True, result.error)
+                self.store.record_attempt(url, "http", result.status, True, result.error)
                 self.emit("activity", f"Skipped non-text content: {url}")
                 return
             self.stats.errors += 1
             self.store.complete_url(url, result.error)
-            self.store.record_attempt(url, "http", 0, False, result.error)
+            self.store.record_attempt(url, "http", result.status, False, result.error)
             self.emit("activity", f"Fetch failed: {url} ({result.error})")
             return
         text = self.fetcher.decode(result)

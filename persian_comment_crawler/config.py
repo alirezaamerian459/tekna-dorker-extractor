@@ -29,6 +29,9 @@ class CrawlConfig:
     request_timeout_seconds: int = 20
     # Pace requests to the same host and when switching between hosts.
     domain_cooldown_seconds: float = 2.0
+    # Adaptive host pacing keeps clean hosts fast while backing off noisy ones.
+    domain_min_cooldown_seconds: float = 0.5
+    domain_max_cooldown_seconds: float = 8.0
     # Keep different domains parallel by default; set >0 only for a global
     # cross-domain throttle.
     inter_domain_cooldown_seconds: float = 0.0
@@ -60,7 +63,11 @@ class CrawlConfig:
         self.low_yield_domain_pages = max(0, min(int(self.low_yield_domain_pages), 1_000_000))
         if self.max_pages_per_domain:
             self.low_yield_domain_pages = min(self.low_yield_domain_pages, self.max_pages_per_domain)
-        self.domain_cooldown_seconds = max(0.0, min(float(self.domain_cooldown_seconds), 300.0))
+        self.domain_min_cooldown_seconds = max(0.0, min(float(self.domain_min_cooldown_seconds), 300.0))
+        self.domain_max_cooldown_seconds = max(self.domain_min_cooldown_seconds, min(float(self.domain_max_cooldown_seconds), 300.0))
+        # A zero base cooldown remains a supported explicit opt-out for local
+        # fixtures and trusted hosts; adaptive pacing can still back off later.
+        self.domain_cooldown_seconds = max(0.0, min(float(self.domain_cooldown_seconds), self.domain_max_cooldown_seconds))
         self.inter_domain_cooldown_seconds = max(0.0, min(float(self.inter_domain_cooldown_seconds), 300.0))
         self.max_links_per_page = max(5, min(int(self.max_links_per_page), 200))
         self.max_discovered_urls = max(0, min(int(self.max_discovered_urls), 10_000_000))

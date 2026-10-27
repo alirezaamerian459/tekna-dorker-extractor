@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from persian_comment_crawler.config import CrawlConfig
 from persian_comment_crawler.engine import CrawlEngine
+from persian_comment_crawler.fetcher import FetchResult
 from persian_comment_crawler.models import CrawlState
 from persian_comment_crawler.storage import SQLiteStore
 
@@ -26,6 +27,20 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class EngineControlTests(unittest.TestCase):
+    def test_adaptive_host_pacing_speeds_clean_hosts_and_backs_off(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            config = CrawlConfig(data_root=Path(directory) / "data", auto_ir_discovery=False, minimum_free_disk_bytes=0)
+            store = SQLiteStore(config.data_root, config)
+            engine = CrawlEngine(config, store)
+            clean = FetchResult("https://example.ir/", 200, "text/html", b"", None)
+            engine._update_domain_pacing("example.ir", clean)
+            self.assertAlmostEqual(engine._domain_delay("example.ir"), 1.6)
+            blocked = FetchResult("https://example.ir/", 429, "", b"", "HTTP Error 429")
+            engine._update_domain_pacing("example.ir", blocked)
+            self.assertAlmostEqual(engine._domain_delay("example.ir"), 3.2)
+            store.close()
+
     def test_catalog_and_sitemap_links_bypass_ordinary_link_cap(self):
         import tempfile
         with tempfile.TemporaryDirectory() as directory:

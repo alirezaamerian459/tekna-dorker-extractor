@@ -21,6 +21,8 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(config.max_pages_per_domain, 0)
         self.assertEqual(config.low_yield_domain_pages, 0)
         self.assertEqual(config.domain_cooldown_seconds, 2.0)
+        self.assertEqual(config.domain_min_cooldown_seconds, 0.5)
+        self.assertEqual(config.domain_max_cooldown_seconds, 8.0)
         self.assertEqual(config.inter_domain_cooldown_seconds, 0.0)
         self.assertEqual(config.max_discovered_urls, 0)
 

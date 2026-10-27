@@ -61,7 +61,9 @@ class UrlFetcher:
                 if len(body) > self.config.max_response_bytes:
                     return FetchResult(safe_url, int(response.status), content_type, b"", "response size limit reached", time.monotonic() - started)
                 return FetchResult(safe_url, int(response.status), content_type, body, None, time.monotonic() - started)
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, ValueError) as exc:
+        except urllib.error.HTTPError as exc:
+            return FetchResult(url, int(exc.code), "", b"", str(exc)[:300], time.monotonic() - started)
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
             return FetchResult(url, 0, "", b"", str(exc)[:300], time.monotonic() - started)
 
     @staticmethod

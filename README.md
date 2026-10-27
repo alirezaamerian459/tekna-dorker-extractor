@@ -10,9 +10,9 @@ The application starts in Safe Test Mode:
 | Session storage allowance | 1 GB |
 | Minimum free disk space | 10 GB |
 | Maximum comments | 5,000 |
-| Concurrent requests | 4 |
+| Concurrent requests | 8 |
 | Links queued per page | 30 |
-| Low-yield domain cutoff | 30 pages |
+| Low-yield domain cutoff | Disabled |
 | TXT export | Manual |
 | Recovery checkpoint | Enabled |
 
@@ -43,7 +43,7 @@ To build a Windows executable after installing PyInstaller:
 - Seeds a first-priority lane for CafeBazaar, Myket, Digikala, Torob, Soft98, and VGDL; comment/review URLs, app/product pages, and Digikala's public sitemap are visited before the ordinary `.ir` backlog, while navigation and downloads stay behind them.
 - Does not impose a per-domain page cap or no-comments cutoff by default; overall session duration, storage, queue size, response size, robots rules, comment cap, and asset filters still prevent unbounded resource use.
 - Expands sitemap indexes and child sitemaps without the ordinary 30-link page cap, and keeps every detected app/product/game URL in the queue; large URL batches are committed transactionally for crash-resistant discovery.
-- Uses dynamic per-domain worker lanes: one active URL per host, many different hosts in parallel, and a two-second cooldown per host. There is no global cross-site wait by default, so throughput scales with the number of available websites instead of alphabet buckets.
+- Uses dynamic per-domain worker lanes: one active URL per host, many different hosts in parallel, and adaptive host pacing. A clean host converges from the two-second starting delay toward 0.5 seconds; timeouts, connection failures, 403/408/425/429 responses, and 5xx responses back off that host exponentially up to eight seconds. There is no global cross-site wait by default, so throughput scales with the number of available websites instead of alphabet buckets.
 - The dashboard exposes live worker lanes, queued URLs, active/failed counts, focused-site progress, storage, and recent activity so a multi-domain run can be watched without guessing from a single counter.
 - Checks robots.txt, uses a descriptive user agent, applies domain cooldowns, and rejects non-HTTP(S), embedded-credential, private, loopback, link-local, reserved, and multicast targets.
 - Detects semantic comment structures, WordPress-style classes, reviews, replies, and Schema.org JSON-LD comments.
