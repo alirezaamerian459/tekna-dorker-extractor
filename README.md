@@ -1,17 +1,59 @@
-# Tekna Dorker & Extractor
+# Persian Comment Crawler
 
-A small, browser-only workspace for building domain-scoped search queries and extracting clean links from copied search results.
+Persian Comment Crawler is a Windows desktop application for collecting publicly accessible Persian-language comments from websites you are allowed to research. It discovers links from explicit seed URLs, same-domain pages, XML sitemaps, RSS, and Atom feeds; detects common comment structures; normalizes and classifies Persian text; stores provenance in SQLite; and exports optional UTF-8 TXT files grouped by domain.
 
-## Run it
+The application starts in Safe Test Mode:
 
-Open `index.html` in a modern browser. The app has no build step, dependencies, account, server, or API key.
+| Guardrail | Default |
+| --- | ---: |
+| Test duration | 10 minutes |
+| Session storage allowance | 1 GB |
+| Minimum free disk space | 10 GB |
+| Maximum comments | 5,000 |
+| Concurrent requests | 2 |
+| TXT export | Manual |
+| Recovery checkpoint | Enabled |
 
-## Query builder
+## Run on Windows
 
-Enter a domain you own or are authorized to review, select the content categories you need, and copy a query or open it in Google Search. Searches only run after you choose **Open Google Search**.
+Python 3.12 or newer is required. Tkinter is included with the official Windows Python installer.
 
-## URL extractor
+```powershell
+python run_app.py
+```
 
-Paste plain search-result text or copied HTML, optionally enter a domain filter, then select **Extract URLs**. The app deduplicates HTTP and HTTPS links and supports copying the results or downloading them as a text file.
+For a local editable install:
 
-All processing stays in the browser tab. Inputs and results are not sent to a Tekna service or stored by the app. Use search engines in line with their terms and review only assets you own or have permission to assess.
+```powershell
+python -m pip install -e .
+persian-comment-crawler
+```
+
+To build a Windows executable after installing PyInstaller:
+
+```powershell
+.\build_windows.ps1
+```
+
+## What it does
+
+- Uses manual seeds and bounded same-domain discovery. It does not require a topic keyword, domain extension, or search phrase.
+- Checks robots.txt, uses a descriptive user agent, applies domain cooldowns, and rejects non-HTTP(S), embedded-credential, private, loopback, link-local, reserved, and multicast targets.
+- Detects semantic comment structures, WordPress-style classes, reviews, replies, and Schema.org JSON-LD comments.
+- Normalizes Persian/Arabic Unicode variants while preserving the original comment text.
+- Deduplicates comments with platform IDs when available and provenance-aware hashes otherwise.
+- Keeps Start, Pause, Resume, Stop, and Emergency stop available from the desktop UI.
+- Saves SQLite data, logs, temporary files, and checkpoints beneath one managed data directory.
+- Enforces storage and free-disk limits before network work and export writes.
+
+## Test
+
+```powershell
+python -m unittest discover -s tests -v
+```
+
+The tests use local fixtures and a local HTTP server. They do not crawl uncontrolled third-party websites.
+
+See [docs/USER_MANUAL.md](docs/USER_MANUAL.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and [docs/DEVELOPER.md](docs/DEVELOPER.md) for operation and extension notes.
+
+The original browser-only dorker interface remains in `index.html`, `styles.css`, and `app.js` for compatibility, but the desktop crawler is launched with `run_app.py`.

@@ -1,0 +1,261 @@
+from __future__ import annotations
+
+import queue
+import threading
+import time
+import urllib.error
+import urllib.request
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict
+from pathlib import Path
+from urllib.parse import urlsplit
+from urllib.robotparser import RobotFileParser
+
+from .config import CrawlConfig
+from .discovery import discovery_candidates
+from .extractor import extract_page
+from .fetcher import UrlFetcher
+from .models import CommentRecord, CrawlState, CrawlStats, utc_now
+from .policy import UnsafeUrl, normalize_url
+from .storage import SQLiteStore, StorageBudgetExceeded
+
+
+class CrawlEngine:
+    """A persistent, bounded crawler with explicit pause/stop transitions."""
+
+    def __init__(self, config: CrawlConfig, store: SQLiteStore, on_event=None) -> None:
+        self.config = config
+        self.store = store
+        self.on_event = on_event or (lambda event, payload: None)
+        self.fetcher = UrlFetcher(config)
+        self.state = CrawlState.IDLE
+        self.stats = CrawlStats(remaining_storage_bytes=store.budget.remaining())
+        self._pause_event = threading.Event()
+        self._stop_event = threading.Event()
+        self._emergency_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._executor: ThreadPoolExecutor | None = None
+        self._robot_cache: dict[str, RobotFileParser | None] = {}
+        self._last_domain_request: dict[str, float] = defaultdict(float)
+        self._state_lock = threading.RLock()
+        self._started_at = 0.0
+
+    def emit(self, event: str, payload=None) -> None:
+        self.on_event(event, payload)
+
+    def start(self) -> None:
+        with self._state_lock:
+            if self.state in {CrawlState.RUNNING, CrawlState.PAUSED, CrawlState.STOPPING}:
+                return
+            self._stop_event.clear()
+            self._emergency_event.clear()
+            self._pause_event.clear()
+            self.store.budget.ensure_capacity(0)
+            self.store.start_session(self.config)
+            self._seed_urls()
+            self._started_at = time.monotonic()
+            self.state = CrawlState.RUNNING
+            self.store.set_session_state(self.state)
+            self._thread = threading.Thread(target=self._run, name="crawler-dispatcher", daemon=True)
+            self._thread.start()
+            self.emit("state", self.state)
+
+    def pause(self) -> None:
+        with self._state_lock:
+            if self.state != CrawlState.RUNNING:
+                return
+            self._pause_event.set()
+            self.state = CrawlState.PAUSED
+            self.store.set_session_state(self.state)
+            self.store.checkpoint(self.state, "user pause")
+            self.emit("state", self.state)
+
+    def resume(self) -> None:
+        with self._state_lock:
+            if self.state not in {CrawlState.PAUSED, CrawlState.BUDGET_PAUSED, CrawlState.STOPPED}:
+                return
+            self._pause_event.clear()
+            self._stop_event.clear()
+            self.state = CrawlState.RUNNING
+            self.store.set_session_state(self.state)
+            if self._thread is None or not self._thread.is_alive():
+                self._thread = threading.Thread(target=self._run, name="crawler-dispatcher", daemon=True)
+                self._thread.start()
+            self.emit("state", self.state)
+
+    def stop(self) -> None:
+        with self._state_lock:
+            if self.state not in {CrawlState.RUNNING, CrawlState.PAUSED, CrawlState.BUDGET_PAUSED}:
+                return
+            self.state = CrawlState.STOPPING
+            self._stop_event.set()
+            self._pause_event.clear()
+            self.store.set_session_state(self.state)
+            self.emit("state", self.state)
+
+    def emergency_stop(self) -> None:
+        with self._state_lock:
+            self._emergency_event.set()
+            self._stop_event.set()
+            self._pause_event.clear()
+            self.state = CrawlState.STOPPING
+            self.store.set_session_state(self.state, "emergency stop")
+            self.emit("state", self.state)
+
+    def wait(self, timeout: float | None = None) -> None:
+        if self._thread:
+            self._thread.join(timeout)
+
+    def _seed_urls(self) -> None:
+        if self.store.count("discovered_urls") > 0:
+            return
+        for raw in self.config.seed_urls:
+            try:
+                url = normalize_url(raw)
+            except UnsafeUrl as exc:
+                self.store.log("warning", "discovery", f"Skipped seed {raw!r}: {exc}")
+                continue
+            if self.store.upsert_url(url, "manual-seed", 10):
+                self.emit("activity", f"Queued seed: {url}")
+
+    def _allowed_by_robots(self, url: str) -> bool:
+        parts = urlsplit(url)
+        origin = f"{parts.scheme}://{parts.netloc}"
+        if origin in self._robot_cache:
+            parser = self._robot_cache[origin]
+            return parser.can_fetch(self.config.user_agent, url) if parser is not None else True
+        parser: RobotFileParser | None = RobotFileParser(f"{origin}/robots.txt")
+        try:
+            request = urllib.request.Request(f"{origin}/robots.txt", headers={"User-Agent": self.config.user_agent})
+            with urllib.request.urlopen(request, timeout=self.config.request_timeout_seconds) as response:
+                parser.parse(response.read(512_000).decode("utf-8", errors="replace").splitlines())
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError):
+            parser = None
+        if parser is None:
+            # A missing or unavailable robots file does not grant permission;
+            # we allow only a bounded request and record the condition.
+            self.emit("activity", f"robots.txt unavailable: {origin}")
+        self._robot_cache[origin] = parser
+        return parser.can_fetch(self.config.user_agent, url) if parser is not None else True
+
+    def _wait_if_paused(self) -> bool:
+        while self._pause_event.is_set() and not self._stop_event.is_set():
+            time.sleep(0.15)
+        return not self._stop_event.is_set()
+
+    def _run(self) -> None:
+        self._executor = ThreadPoolExecutor(max_workers=self.config.concurrency, thread_name_prefix="crawler-worker")
+        try:
+            futures = set()
+            while not self._stop_event.is_set():
+                if self.config.safe_test_mode and time.monotonic() - self._started_at >= self.config.test_duration_seconds:
+                    self.emit("activity", "Safe Test Mode duration reached")
+                    break
+                if not self._wait_if_paused():
+                    break
+                while len(futures) < self.config.concurrency and not self._stop_event.is_set():
+                    row = self.store.claim_url()
+                    if row is None:
+                        break
+                    futures.add(self._executor.submit(self._process_url, row["url"]))
+                done = {future for future in futures if future.done()}
+                for future in done:
+                    futures.remove(future)
+                    try:
+                        future.result()
+                    except Exception as exc:
+                        self.store.log("error", "engine", str(exc))
+                        self.stats.errors += 1
+                if not futures and not self.store.has_pending_urls():
+                    break
+                time.sleep(0.05)
+            for future in list(futures):
+                if self._emergency_event.is_set():
+                    future.cancel()
+                else:
+                    try:
+                        future.result(timeout=self.config.request_timeout_seconds + 2)
+                    except Exception:
+                        future.cancel()
+        finally:
+            if self._executor:
+                self._executor.shutdown(wait=not self._emergency_event.is_set(), cancel_futures=True)
+            with self._state_lock:
+                if self.state == CrawlState.STOPPING:
+                    self.state = CrawlState.STOPPED
+                elif self.state == CrawlState.RUNNING:
+                    self.state = CrawlState.COMPLETED
+                self.store.set_session_state(self.state)
+                self.store.checkpoint(self.state, "worker finished")
+                self.emit("state", self.state)
+                self.emit("stats", asdict(self.stats))
+
+    def _process_url(self, url: str) -> None:
+        if self._stop_event.is_set():
+            return
+        domain = (urlsplit(url).hostname or "").lower()
+        elapsed = time.monotonic() - self._last_domain_request[domain]
+        if elapsed < self.config.domain_cooldown_seconds:
+            time.sleep(self.config.domain_cooldown_seconds - elapsed)
+        self._last_domain_request[domain] = time.monotonic()
+        if not self._allowed_by_robots(url):
+            self.store.complete_url(url, "disallowed by robots.txt")
+            self.emit("activity", f"Skipped by robots.txt: {url}")
+            return
+        try:
+            self.store.budget.ensure_capacity(self.config.max_response_bytes)
+        except StorageBudgetExceeded as exc:
+            with self._state_lock:
+                self.state = CrawlState.BUDGET_PAUSED
+                self._pause_event.set()
+            self.store.set_session_state(self.state, str(exc))
+            self.store.checkpoint(self.state, str(exc))
+            self.emit("budget", str(exc))
+            return
+        self.stats.active_requests += 1
+        result = self.fetcher.fetch(url)
+        self.stats.active_requests = max(0, self.stats.active_requests - 1)
+        self.stats.visited_pages += 1
+        if result.error:
+            self.stats.errors += 1
+            self.store.complete_url(url, result.error)
+            self.store.record_attempt(url, "http", 0, False, result.error)
+            self.emit("activity", f"Fetch failed: {url} ({result.error})")
+            return
+        text = self.fetcher.decode(result)
+        page = extract_page(text, url)
+        new_comments = 0
+        if self.store.count("comments") < self.config.maximum_comments:
+            for item in page.comments:
+                if self.store.count("comments") >= self.config.maximum_comments:
+                    break
+                if self.store.save_comment(CommentRecord(item.text, url, domain, item.comment_url, item.publication_date, item.method, item.confidence, item.platform_id)):
+                    new_comments += 1
+        for discovered, source, priority in discovery_candidates(url, text, result.content_type):
+            if self.store.count("discovered_urls") >= self.config.max_discovered_urls:
+                break
+            try:
+                safe = normalize_url(discovered)
+            except UnsafeUrl:
+                continue
+            self.store.upsert_url(safe, source, priority)
+        self.store.record_attempt(url, page.method, len(page.comments), True)
+        self.store.complete_url(url)
+        self.stats.processed_pages += 1
+        self.stats.pages_with_comments += int(bool(page.comments))
+        self.stats.discovered_websites = self.store.count("domains")
+        self.stats.unique_comments = self.store.count("comments")
+        self.stats.storage_bytes = self.store.budget.usage()
+        self.stats.remaining_storage_bytes = self.store.budget.remaining()
+        self.stats.last_activity = utc_now()
+        self.emit("stats", asdict(self.stats))
+        self.emit("activity", f"Processed {url} — {new_comments} new Persian comments")
+        if self.stats.remaining_storage_bytes <= 0:
+            with self._state_lock:
+                self.state = CrawlState.BUDGET_PAUSED
+                self._pause_event.set()
+            reason = "managed storage allowance reached after a committed page"
+            self.store.set_session_state(self.state, reason)
+            self.store.checkpoint(self.state, reason)
+            self.emit("budget", reason)
