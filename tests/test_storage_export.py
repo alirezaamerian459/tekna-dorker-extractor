@@ -9,6 +9,16 @@ from persian_comment_crawler.storage import SQLiteStore
 
 
 class StorageExportTests(unittest.TestCase):
+    def test_queue_prunes_asset_hosts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = CrawlConfig(data_root=Path(directory) / "data", minimum_free_disk_bytes=0)
+            store = SQLiteStore(config.data_root, config)
+            store.upsert_url("https://dl.example.ir/file", "internal-link")
+            store.upsert_url("https://example.ir/article", "internal-link")
+            self.assertEqual(store.skip_pending_host_prefixes(("dl",), "asset host"), 1)
+            self.assertTrue(store.has_pending_urls())
+            store.close()
+
     def test_comment_deduplication_and_domain_export(self):
         with tempfile.TemporaryDirectory() as directory:
             tmp_path = Path(directory)

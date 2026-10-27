@@ -204,6 +204,36 @@ class SQLiteStore:
             )
             return int(cur.rowcount)
 
+    def skip_pending_host_prefixes(self, prefixes: tuple[str, ...], reason: str) -> int:
+        """Prune queued asset/CDN subdomains without deleting discovered data."""
+        if not prefixes:
+            return 0
+        clauses: list[str] = []
+        values: list[str] = []
+        for prefix in prefixes:
+            clauses.extend(("domain=?", "domain LIKE ?"))
+            values.extend((prefix, f"{prefix}.%"))
+        with self.transaction() as db:
+            cur = db.execute(
+                f"UPDATE discovered_urls SET status='skipped',visited_at=?,last_error=? WHERE status='pending' AND ({' OR '.join(clauses)})",
+                (utc_now(), reason[:300], *values),
+            )
+            return int(cur.rowcount)
+
+    def skip_pending_over_budget_domains(self, max_pages: int, reason: str) -> int:
+        """Prune backlog for domains that already exhausted their page budget."""
+        with self.transaction() as db:
+            cur = db.execute(
+                """UPDATE discovered_urls SET status='skipped',visited_at=?,last_error=?
+                   WHERE status='pending' AND domain IN (
+                     SELECT domain FROM discovered_urls
+                     WHERE status IN ('active','done','error','skipped')
+                     GROUP BY domain HAVING COUNT(*) >= ?
+                   )""",
+                (utc_now(), reason[:300], max(1, int(max_pages))),
+            )
+            return int(cur.rowcount)
+
     def requeue_incomplete_urls(self, max_retries: int = 2) -> int:
         with self.transaction() as db:
             cur = db.execute("UPDATE discovered_urls SET status='pending' WHERE status='active' OR (status='error' AND attempts <= ?)", (max(0, max_retries),))

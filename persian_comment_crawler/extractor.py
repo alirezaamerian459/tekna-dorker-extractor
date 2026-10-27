@@ -11,7 +11,7 @@ from .persian import classify_persian
 
 
 COMMENT_HINTS = ("comment", "comments", "comment-body", "comment-content", "review", "reply", "discussion", "نظر", "دیدگاه", "پاسخ")
-TEXT_HINTS = ("comment-body", "comment-content", "comment-text", "review-text", "review-body", "entry-content", "text")
+TEXT_HINTS = ("comment-body", "comment-content", "comment-text", "review-text", "review-body", "ribbon-content", "entry-content", "text")
 DATE_HINTS = ("date", "time", "published")
 FORM_TEXT_HINTS = (
     "دیدگاهتان را بنویسید", "دیدگاه *", "نشانی ایمیل", "ذخیره نام و ایمیل",
@@ -37,7 +37,7 @@ COMMENT_NOISE_PATTERNS = (
     re.compile(r"^(?:[0-9۰-۹]+\s*)?(?:روز|هفته|ماه|سال)\s*(?:پیش|ago)$", re.IGNORECASE),
 )
 STRONG_TEXT_HINTS = (
-    "comment-body", "comment-content", "comment-text", "review-text", "review-body", "commenttext",
+    "comment-body", "comment-content", "comment-text", "review-text", "review-body", "ribbon-content", "commenttext",
 )
 
 

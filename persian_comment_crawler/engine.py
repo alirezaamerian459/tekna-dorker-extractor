@@ -21,6 +21,9 @@ from .policy import UnsafeUrl, normalize_url
 from .storage import SQLiteStore, StorageBudgetExceeded
 
 
+NON_CONTENT_HOST_PREFIXES = ("ads", "assets", "cdn", "dl", "download", "img", "images", "media", "static", "video", "vod")
+
+
 class CrawlEngine:
     """A persistent, bounded crawler with explicit pause/stop transitions."""
 
@@ -60,6 +63,8 @@ class CrawlEngine:
             self.store.budget.ensure_capacity(0)
             self.store.start_session(self.config)
             requeued = self.store.requeue_incomplete_urls(self.config.max_retries)
+            pruned_assets = self.store.skip_pending_host_prefixes(NON_CONTENT_HOST_PREFIXES, "asset/CDN host excluded")
+            pruned_budget = self.store.skip_pending_over_budget_domains(self.config.max_pages_per_domain, "domain page budget already exhausted")
             self._started_at = time.monotonic()
             self.state = CrawlState.RUNNING
             self.store.set_session_state(self.state)
@@ -68,6 +73,8 @@ class CrawlEngine:
             self.emit("state", self.state)
             if requeued:
                 self.emit("activity", f"Recovered {requeued} interrupted URL(s)")
+            if pruned_assets or pruned_budget:
+                self.emit("activity", f"Pruned {pruned_assets + pruned_budget} low-value queued URL(s)")
 
     def pause(self) -> None:
         with self._state_lock:

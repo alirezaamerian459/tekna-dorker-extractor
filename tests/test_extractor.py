@@ -55,3 +55,14 @@ class ExtractorTests(unittest.TestCase):
         html = '<section id="comments"><div class="comment">اولین دیدگاه را شما ثبت کنید! دیدگاه خود را بنویسید</div></section>'
         result = extract_page(html, "https://example.org/post")
         self.assertEqual(result.comments, ())
+
+    def test_extracts_comment_body_from_tabnak_style_wrapper(self):
+        html = """
+        <div id="comment-23087827" class="height-card">
+          <div class="ribbon ribbon-bookmark">کاربر مهمان -&gt; 1405/07/29</div>
+          <a class="reply-link">پاسخ</a>
+          <p class="ribbon-content">این متن واقعی دیدگاه باید بدون سربرگ ذخیره شود.</p>
+        </div>
+        """
+        result = extract_page(html, "https://example.ir/news/1")
+        self.assertEqual([item.text for item in result.comments], ["این متن واقعی دیدگاه باید بدون سربرگ ذخیره شود."])

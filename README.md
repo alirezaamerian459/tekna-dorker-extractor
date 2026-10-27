@@ -10,7 +10,7 @@ The application starts in Safe Test Mode:
 | Session storage allowance | 1 GB |
 | Minimum free disk space | 10 GB |
 | Maximum comments | 5,000 |
-| Concurrent requests | 2 |
+| Concurrent requests | 4 |
 | Links queued per page | 30 |
 | Low-yield domain cutoff | 30 pages |
 | TXT export | Manual |
