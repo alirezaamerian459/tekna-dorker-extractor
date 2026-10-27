@@ -29,7 +29,7 @@ class CrawlEngine:
         self.store = store
         self.on_event = on_event or (lambda event, payload: None)
         self.fetcher = UrlFetcher(config)
-        self.search_provider = BingSearchProvider()
+        self.search_provider = BingSearchProvider(config.search_api_key or None)
         self.state = CrawlState.IDLE
         self.stats = CrawlStats(remaining_storage_bytes=store.budget.remaining())
         self._pause_event = threading.Event()
@@ -111,17 +111,20 @@ class CrawlEngine:
     def _seed_urls(self) -> None:
         if self.store.count("discovered_urls") > 0:
             return
-        if not self.config.seed_urls and self.search_provider.enabled:
-            self.emit("activity", "Discovering initial pages through the configured search API")
+        if self.config.auto_ir_discovery and self.search_provider.enabled:
+            self.emit("activity", "Discovering Iranian .ir pages through the configured search API")
             for query in default_search_queries():
-                for url in self.search_provider.search(query, limit=20):
+                for url in self.search_provider.search_ir(query, limit=self.config.search_results_per_query):
                     try:
                         safe = normalize_url(url)
                     except UnsafeUrl:
                         continue
                     self.store.upsert_url(safe, f"{self.search_provider.name}: {query}", 25)
         if not self.config.seed_urls and not self.store.has_pending_urls():
-            self.emit("activity", "No seeds configured; add a public URL or set an approved search API key")
+            if self.config.auto_ir_discovery and not self.search_provider.enabled:
+                self.emit("activity", "Automatic .ir discovery needs a permitted Bing API key; add BING_SEARCH_API_KEY or enter one in the app")
+            else:
+                self.emit("activity", "No discovery results were returned")
         for raw in self.config.seed_urls:
             try:
                 url = normalize_url(raw)

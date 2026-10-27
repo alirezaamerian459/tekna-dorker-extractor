@@ -80,7 +80,16 @@ class CrawlerApp(tk.Tk):
         ttk.Label(left, text="Seed URLs or domains", style="Muted.TLabel").pack(anchor="w")
         self.seed_text = ScrolledText(left, height=6, background="#102e32", foreground="#e7f4eb", insertbackground="#d9f27f", relief="flat", font=("Cascadia Code", 9), wrap="none")
         self.seed_text.pack(fill="x", pady=(5, 12))
-        self.seed_text.insert("1.0", "https://example.org")
+
+        discovery_row = ttk.Frame(left, style="Card.TFrame")
+        discovery_row.pack(fill="x", pady=(0, 8))
+        self.auto_ir_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(discovery_row, text="Automatically discover .ir websites", variable=self.auto_ir_var).pack(side="left")
+        ttk.Label(discovery_row, text="No seed required", style="Muted.TLabel").pack(side="right")
+        ttk.Label(left, text="Bing Web Search API key (optional)", style="Muted.TLabel").pack(anchor="w")
+        self.search_key_var = tk.StringVar()
+        ttk.Entry(left, textvariable=self.search_key_var, show="•").pack(fill="x", pady=(5, 3))
+        ttk.Label(left, text="Required for automatic search-engine discovery; never written to the database.", style="Muted.TLabel", wraplength=400).pack(anchor="w", pady=(0, 11))
 
         ttk.Label(left, text="Managed data directory", style="Muted.TLabel").pack(anchor="w")
         data_row = ttk.Frame(left, style="Card.TFrame")
@@ -136,7 +145,7 @@ class CrawlerApp(tk.Tk):
 
     def _config(self) -> CrawlConfig:
         seeds = [line.strip() for line in self.seed_text.get("1.0", "end").splitlines() if line.strip()]
-        return CrawlConfig(test_duration_seconds=max(60, self.duration_var.get() * 60), maximum_comments=self.max_comments_var.get(), concurrency=self.concurrency_var.get(), seed_urls=seeds, data_root=Path(self.data_var.get()))
+        return CrawlConfig(test_duration_seconds=max(60, self.duration_var.get() * 60), maximum_comments=self.max_comments_var.get(), concurrency=self.concurrency_var.get(), auto_ir_discovery=self.auto_ir_var.get(), search_api_key=self.search_key_var.get().strip(), seed_urls=seeds, data_root=Path(self.data_var.get()))
 
     def _start(self) -> None:
         if self.engine and self.engine.state in {CrawlState.RUNNING, CrawlState.PAUSED, CrawlState.STOPPING}:

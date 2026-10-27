@@ -37,7 +37,7 @@ To build a Windows executable after installing PyInstaller:
 
 ## What it does
 
-- Uses manual seeds and bounded same-domain discovery. It does not require a topic keyword, domain extension, or search phrase.
+- Includes automatic `.ir` discovery through an authorized Bing Web Search API: it runs built-in Persian comment queries, filters results to `.ir`, and then performs bounded same-domain discovery. Manual seeds remain optional.
 - Checks robots.txt, uses a descriptive user agent, applies domain cooldowns, and rejects non-HTTP(S), embedded-credential, private, loopback, link-local, reserved, and multicast targets.
 - Detects semantic comment structures, WordPress-style classes, reviews, replies, and Schema.org JSON-LD comments.
 - Normalizes Persian/Arabic Unicode variants while preserving the original comment text.
@@ -57,3 +57,7 @@ The tests use local fixtures and a local HTTP server. They do not crawl uncontro
 See [docs/USER_MANUAL.md](docs/USER_MANUAL.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and [docs/DEVELOPER.md](docs/DEVELOPER.md) for operation and extension notes.
 
 The original browser-only dorker interface remains in `index.html`, `styles.css`, and `app.js` for compatibility, but the desktop crawler is launched with `run_app.py`.
+
+## Automatic `.ir` discovery
+
+Enable **Automatically discover .ir websites** in the desktop app and enter a Bing Web Search API key. The key may also be supplied as `BING_SEARCH_API_KEY`. The app calls the documented JSON API, never scrapes a search-results page, filters returned URLs to the `.ir` country-code domain, and does not claim complete coverage. The key is used in memory and is redacted from session configuration files.

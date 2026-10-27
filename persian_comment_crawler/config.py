@@ -33,12 +33,16 @@ class CrawlConfig:
     max_discovered_urls: int = 20_000
     export_rotation_bytes: int = 50_000_000
     user_agent: str = "PersianCommentCrawler/0.1 (+public-research; contact: local-user)"
+    auto_ir_discovery: bool = True
+    search_api_key: str = ""
+    search_results_per_query: int = 20
     seed_urls: list[str] = field(default_factory=list)
     data_root: Path = field(default_factory=default_data_root)
 
     def __post_init__(self) -> None:
         self.concurrency = max(1, min(int(self.concurrency), 16))
         self.max_retries = max(0, min(int(self.max_retries), 8))
+        self.search_results_per_query = max(1, min(int(self.search_results_per_query), 50))
         self.maximum_comments = max(1, int(self.maximum_comments))
         self.storage_limit_bytes = max(1_000_000, int(self.storage_limit_bytes))
         self.minimum_free_disk_bytes = max(0, int(self.minimum_free_disk_bytes))
@@ -51,9 +55,13 @@ class CrawlConfig:
     def to_json(self) -> str:
         data = asdict(self)
         data["data_root"] = str(self.data_root)
+        # Never persist a search API secret in a session checkpoint/database.
+        data["search_api_key"] = "[configured]" if self.search_api_key else ""
         return json.dumps(data, ensure_ascii=False, sort_keys=True)
 
     @classmethod
     def from_json(cls, raw: str) -> "CrawlConfig":
         data: dict[str, Any] = json.loads(raw)
+        if data.get("search_api_key") == "[configured]":
+            data["search_api_key"] = ""
         return cls(**data)

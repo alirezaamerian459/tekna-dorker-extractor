@@ -24,6 +24,6 @@ SQLite uses WAL mode and explicit transactions. The `comments.record_id` hash is
 
 ## Discovery extension points
 
-`discovery.py` currently handles manual seeds, internal links, XML sitemaps, RSS, and Atom-style feeds. Search APIs, public directories, and dataset imports should implement a provider that yields `(url, source, priority)` tuples; credentials and provider-specific terms stay outside the core crawler.
+`discovery.py` handles manual seeds, internal links, XML sitemaps, RSS, Atom-style feeds, and an optional Bing JSON API provider. The built-in `.ir` mode adds `site:.ir` to a small set of Persian comment heuristics, filters every result to the `.ir` ccTLD, and yields `(url, source, priority)` tuples. Other search APIs, public directories, and dataset imports should implement the same provider contract; credentials and provider-specific terms stay outside the core crawler.
 
 `render.py` is an optional Playwright adapter. It is not used automatically and has no authentication, CAPTCHA, download, or proxy behavior.

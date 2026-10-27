@@ -106,6 +106,11 @@ class BingSearchProvider(SearchProvider):
         values = data.get("webPages", {}).get("value", []) if isinstance(data, dict) else []
         return list(dict.fromkeys(item.get("url", "") for item in values if isinstance(item, dict) and item.get("url", "").startswith(("http://", "https://"))))
 
+    def search_ir(self, query: str, limit: int = 20) -> list[str]:
+        """Search only the Iranian ccTLD without scraping result pages."""
+        values = self.search(f"site:.ir {query}", limit)
+        return [url for url in values if (urllib.parse.urlsplit(url).hostname or "").lower().endswith(".ir")]
+
 
 def default_search_queries() -> tuple[str, ...]:
     return (
