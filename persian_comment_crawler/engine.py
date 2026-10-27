@@ -53,6 +53,9 @@ class CrawlEngine:
         self._executor: ThreadPoolExecutor | None = None
         self._robot_cache: dict[str, RobotFileParser | None] = {}
         self._last_domain_request: dict[str, float] = defaultdict(float)
+        self._request_gate = threading.Lock()
+        self._last_request_domain = ""
+        self._last_request_started = 0.0
         self._domain_pages: dict[str, int] = defaultdict(int)
         self._domain_comment_pages: dict[str, int] = defaultdict(int)
         self._domain_stats_lock = threading.RLock()
@@ -254,6 +257,17 @@ class CrawlEngine:
             time.sleep(0.15)
         return not self._stop_event.is_set()
 
+    def _wait_for_request_slot(self, domain: str) -> None:
+        """Throttle starts when workers switch between different websites."""
+        with self._request_gate:
+            elapsed = time.monotonic() - self._last_request_started
+            if self._last_request_domain and self._last_request_domain != domain:
+                remaining = self.config.inter_domain_cooldown_seconds - elapsed
+                if remaining > 0:
+                    time.sleep(remaining)
+            self._last_request_domain = domain
+            self._last_request_started = time.monotonic()
+
     def _run(self) -> None:
         self._executor = ThreadPoolExecutor(max_workers=self.config.concurrency, thread_name_prefix="crawler-worker")
         try:
@@ -323,6 +337,7 @@ class CrawlEngine:
         if elapsed < self.config.domain_cooldown_seconds:
             time.sleep(self.config.domain_cooldown_seconds - elapsed)
         self._last_domain_request[domain] = time.monotonic()
+        self._wait_for_request_slot(domain)
         if not self._allowed_by_robots(url):
             self.store.complete_url(url, "disallowed by robots.txt")
             self.emit("activity", f"Skipped by robots.txt: {url}")

@@ -26,7 +26,9 @@ class CrawlConfig:
     maximum_comments: int = 5_000
     concurrency: int = 2
     request_timeout_seconds: int = 20
-    domain_cooldown_seconds: float = 1.0
+    # Pace requests to the same host and when switching between hosts.
+    domain_cooldown_seconds: float = 2.0
+    inter_domain_cooldown_seconds: float = 2.0
     max_retries: int = 2
     max_response_bytes: int = 4_000_000
     # Zero disables the per-domain page cap. Overall session, storage, queue,
@@ -53,6 +55,8 @@ class CrawlConfig:
         self.low_yield_domain_pages = max(0, min(int(self.low_yield_domain_pages), 1_000_000))
         if self.max_pages_per_domain:
             self.low_yield_domain_pages = min(self.low_yield_domain_pages, self.max_pages_per_domain)
+        self.domain_cooldown_seconds = max(0.0, min(float(self.domain_cooldown_seconds), 300.0))
+        self.inter_domain_cooldown_seconds = max(0.0, min(float(self.inter_domain_cooldown_seconds), 300.0))
         self.max_links_per_page = max(5, min(int(self.max_links_per_page), 200))
         self.storage_limit_bytes = max(1_000_000, int(self.storage_limit_bytes))
         self.minimum_free_disk_bytes = max(0, int(self.minimum_free_disk_bytes))

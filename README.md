@@ -42,6 +42,7 @@ To build a Windows executable after installing PyInstaller:
 - Includes automatic `.ir` discovery with a high-yield path: it ranks all discovered `.ir` domains using Tranco's daily public ranking, gives the top 50 a first-tier boost, then keeps every other discovered site in the normal queue. Archival Common Crawl URLs and optional authorized Bing Web Search results are still included. Manual seeds remain optional.
 - Seeds a first-priority lane for CafeBazaar, Myket, Digikala, Torob, Soft98, and VGDL; comment/review URLs, app/product pages, and Digikala's public sitemap are visited before the ordinary `.ir` backlog, while navigation and downloads stay behind them.
 - Does not impose a per-domain page cap or no-comments cutoff by default; overall session duration, storage, queue size, response size, robots rules, comment cap, and asset filters still prevent unbounded resource use.
+- Paces same-domain requests and switches between different websites with a two-second cooldown, while worker concurrency remains available for parsing and queue work.
 - Checks robots.txt, uses a descriptive user agent, applies domain cooldowns, and rejects non-HTTP(S), embedded-credential, private, loopback, link-local, reserved, and multicast targets.
 - Detects semantic comment structures, WordPress-style classes, reviews, replies, and Schema.org JSON-LD comments.
 - Rejects common comment-widget noise such as reply controls, dates, counters, and "first comment" placeholders before saving.

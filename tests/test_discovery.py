@@ -20,6 +20,8 @@ class DiscoveryTests(unittest.TestCase):
         config = CrawlConfig()
         self.assertEqual(config.max_pages_per_domain, 0)
         self.assertEqual(config.low_yield_domain_pages, 0)
+        self.assertEqual(config.domain_cooldown_seconds, 2.0)
+        self.assertEqual(config.inter_domain_cooldown_seconds, 2.0)
 
     def test_common_crawl_provider_filters_to_ir(self):
         provider = CommonCrawlProvider()
