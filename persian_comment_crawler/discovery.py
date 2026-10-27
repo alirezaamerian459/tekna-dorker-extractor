@@ -170,8 +170,17 @@ class TrancoProvider:
         self.user_agent = user_agent
         self.timeout = timeout
         self.last_error: str | None = None
+        self._ir_rankings: dict[str, int] | None = None
 
-    def discover_ir(self, limit: int = 50) -> list[str]:
+    @staticmethod
+    def _canonical_domain(domain: str) -> str:
+        domain = domain.strip().lower().rstrip(".")
+        return domain[4:] if domain.startswith("www.") else domain
+
+    def load_ir_rankings(self) -> dict[str, int]:
+        """Load ranks for every `.ir` domain in the public daily list once."""
+        if self._ir_rankings is not None:
+            return self._ir_rankings
         try:
             metadata_request = urllib.request.Request(self.metadata_url, headers={"User-Agent": self.user_agent, "Accept": "application/json"})
             with urllib.request.urlopen(metadata_request, timeout=self.timeout) as response:
@@ -179,25 +188,53 @@ class TrancoProvider:
             download_url = metadata.get("download") if isinstance(metadata, dict) else None
             if not download_url:
                 self.last_error = "Tranco returned no download URL"
-                return []
+                self._ir_rankings = {}
+                return self._ir_rankings
             request = urllib.request.Request(download_url, headers={"User-Agent": self.user_agent, "Accept": "text/csv"})
-            results: list[str] = []
+            rankings: dict[str, int] = {}
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 for raw_line in response:
                     try:
-                        _rank, domain = raw_line.decode("utf-8", errors="ignore").strip().split(",", 1)
+                        line = raw_line.decode("utf-8", errors="ignore") if isinstance(raw_line, bytes) else str(raw_line)
+                        rank_text, domain = line.strip().split(",", 1)
+                        rank = int(rank_text)
                     except ValueError:
                         continue
-                    domain = domain.strip().lower().rstrip(".")
-                    if domain.endswith(".ir") and not domain.startswith("www."):
-                        results.append(f"https://{domain}/")
-                        if len(results) >= max(1, min(limit, 200)):
-                            break
+                    domain = self._canonical_domain(domain)
+                    if domain.endswith(".ir"):
+                        rankings.setdefault(domain, rank)
+            self._ir_rankings = rankings
             self.last_error = None
-            return list(dict.fromkeys(results))
+            return rankings
         except Exception as exc:
             self.last_error = str(exc)[:200]
-            return []
+            self._ir_rankings = {}
+            return self._ir_rankings
+
+    def discover_ir(self, limit: int = 50) -> list[str]:
+        rankings = self.load_ir_rankings()
+        return [f"https://{domain}/" for domain, _rank in sorted(rankings.items(), key=lambda item: item[1])[: max(1, min(limit, 200))]]
+
+    def domain_rank(self, url: str) -> int | None:
+        hostname = self._canonical_domain(urlsplit(url).hostname or "")
+        rankings = self.load_ir_rankings()
+        parts = hostname.split(".")
+        for index in range(max(0, len(parts) - 1)):
+            candidate = ".".join(parts[index:])
+            if candidate in rankings:
+                return rankings[candidate]
+        return rankings.get(hostname)
+
+    def priority_for_url(self, url: str, fallback: int = 35) -> int:
+        """Boost every ranked domain while preserving the fallback ordering."""
+        rank = self.domain_rank(url)
+        if rank is None:
+            return fallback
+        # Top 50 share the popular-root tier; later ranks are still preferred
+        # over unknown domains without removing anything from the queue.
+        if rank <= 50:
+            return min(fallback, 15)
+        return min(fallback, 16 + ((rank - 51) // 100))
 
 
 class BingSearchProvider(SearchProvider):

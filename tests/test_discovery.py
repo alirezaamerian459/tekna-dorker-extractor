@@ -54,6 +54,8 @@ class DiscoveryTests(unittest.TestCase):
 
         with patch("persian_comment_crawler.discovery.urllib.request.urlopen", side_effect=[Response(b'{"download":"https://tranco.test/list.csv"}'), Response(b"")]):
             self.assertEqual(provider.discover_ir(10), ["https://news.ir/", "https://shop.ir/"])
+            self.assertEqual(provider.priority_for_url("https://www.news.ir/article", 35), 15)
+            self.assertEqual(provider.priority_for_url("https://unknown.ir/article", 35), 35)
 
     def test_discovery_prioritizes_article_links_and_skips_assets(self):
         html = """

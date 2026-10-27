@@ -25,7 +25,7 @@ SQLite uses WAL mode and explicit transactions. The `comments.record_id` hash is
 
 ## Discovery extension points
 
-`discovery.py` handles manual seeds, internal links, XML sitemaps, RSS, Atom-style feeds, Tranco's public daily popularity ranking, a no-key Common Crawl URL Index provider, and an optional Bing JSON API provider. The built-in `.ir` mode filters every provider result to the `.ir` ccTLD. Tranco candidates receive the highest crawl priority, Common Crawl provides archival coverage, and the optional live provider adds fresher results. Other search APIs, public directories, and dataset imports should implement the same provider contract; credentials and provider-specific terms stay outside the core crawler.
+`discovery.py` handles manual seeds, internal links, XML sitemaps, RSS, Atom-style feeds, Tranco's public daily popularity ranking, a no-key Common Crawl URL Index provider, and an optional Bing JSON API provider. The built-in `.ir` mode filters every provider result to the `.ir` ccTLD. Tranco ranks all discovered `.ir` domains: the top 50 share a first-tier boost, later ranks receive descending tiers, and unknown domains retain their normal source/path priority. Common Crawl provides archival coverage, and the optional live provider adds fresher results. Other search APIs, public directories, and dataset imports should implement the same provider contract; credentials and provider-specific terms stay outside the core crawler.
 
 `render.py` is an optional Playwright adapter. It is not used automatically and has no authentication, CAPTCHA, download, or proxy behavior.
 

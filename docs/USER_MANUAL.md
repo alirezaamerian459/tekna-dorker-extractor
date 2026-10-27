@@ -2,7 +2,7 @@
 
 1. Launch `python run_app.py` or the packaged `PersianCommentCrawler.exe`.
 2. Keep Safe Test Mode enabled for the first run. It stops after ten minutes, 5,000 comments, or the 1 GB managed session allowance.
-3. To run without seed websites or an API key, keep **Automatically discover .ir websites** enabled. The crawler first prioritizes popular `.ir` domains from Tranco's daily public ranking, then queries the free Common Crawl URL Index, filters results to `.ir`, and discovers same-domain links, sitemaps, RSS, and Atom feeds from those pages. An approved Bing Web Search API key is optional for fresher live results. Manual public seed URLs remain supported.
+3. To run without seed websites or an API key, keep **Automatically discover .ir websites** enabled. The crawler ranks all discovered `.ir` domains from Tranco's daily public ranking, boosts the top 50 first, and leaves every other site in the queue with descending popularity tiers. It then queries the free Common Crawl URL Index, filters results to `.ir`, and discovers same-domain links, sitemaps, RSS, and Atom feeds from those pages. An approved Bing Web Search API key is optional for fresher live results. Manual public seed URLs remain supported.
 4. Select a managed data directory. The app writes only inside that directory.
 5. Use Start, Pause, Resume, Stop, or Emergency stop. Stop creates a checkpoint and never deletes committed records.
 6. Export manually when ready. TXT files are grouped by sanitized domain under `Data/Comments/<domain>/` and use UTF-8.

@@ -148,7 +148,7 @@ class CrawlEngine:
                         safe = normalize_url(url)
                     except UnsafeUrl:
                         continue
-                    self.store.upsert_url(safe, f"{self.search_provider.name}: {query}", 25)
+                    self.store.upsert_url(safe, f"{self.search_provider.name}: {query}", self._priority_for_url(safe, 25))
         if self.config.auto_ir_discovery:
             self._seed_popular_ir()
             self.emit("activity", "Discovering archived .ir pages through Common Crawl (up to 12 seconds)")
@@ -158,7 +158,7 @@ class CrawlEngine:
                     safe = normalize_url(url)
                 except UnsafeUrl:
                     continue
-                self.store.upsert_url(safe, "common-crawl-index", 35)
+                self.store.upsert_url(safe, "common-crawl-index", self._priority_for_url(safe, 35))
             if self.common_crawl_provider.last_error:
                 self.emit("activity", f"Common Crawl unavailable: {self.common_crawl_provider.last_error}")
             else:
@@ -197,6 +197,11 @@ class CrawlEngine:
             self.emit("activity", f"Tranco unavailable: {self.tranco_provider.last_error}")
         else:
             self.emit("activity", f"Tranco returned {len(popular_urls)} popular .ir domains")
+
+    def _priority_for_url(self, url: str, fallback: int) -> int:
+        if not self.config.auto_ir_discovery:
+            return fallback
+        return self.tranco_provider.priority_for_url(url, fallback)
 
     def _allowed_by_robots(self, url: str) -> bool:
         parts = urlsplit(url)
@@ -338,7 +343,7 @@ class CrawlEngine:
                 safe = normalize_url(discovered)
             except UnsafeUrl:
                 continue
-            self.store.upsert_url(safe, source, priority)
+            self.store.upsert_url(safe, source, self._priority_for_url(safe, priority))
         self.store.record_attempt(url, page.method, len(page.comments), True)
         self.store.complete_url(url)
         self.stats.processed_pages += 1
