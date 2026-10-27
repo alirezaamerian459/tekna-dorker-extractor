@@ -29,8 +29,11 @@ class CrawlConfig:
     domain_cooldown_seconds: float = 1.0
     max_retries: int = 2
     max_response_bytes: int = 4_000_000
-    max_pages_per_domain: int = 250
-    low_yield_domain_pages: int = 30
+    # Zero disables the per-domain page cap. Overall session, storage, queue,
+    # response-size, and comment-count safeguards still apply.
+    max_pages_per_domain: int = 0
+    # Zero disables the optional no-comments early-stop heuristic.
+    low_yield_domain_pages: int = 0
     max_links_per_page: int = 30
     max_discovered_urls: int = 20_000
     export_rotation_bytes: int = 50_000_000
@@ -46,8 +49,10 @@ class CrawlConfig:
         self.max_retries = max(0, min(int(self.max_retries), 8))
         self.search_results_per_query = max(1, min(int(self.search_results_per_query), 50))
         self.maximum_comments = max(1, int(self.maximum_comments))
-        self.max_pages_per_domain = max(1, min(int(self.max_pages_per_domain), 1_000))
-        self.low_yield_domain_pages = max(0, min(int(self.low_yield_domain_pages), self.max_pages_per_domain))
+        self.max_pages_per_domain = max(0, min(int(self.max_pages_per_domain), 1_000_000))
+        self.low_yield_domain_pages = max(0, min(int(self.low_yield_domain_pages), 1_000_000))
+        if self.max_pages_per_domain:
+            self.low_yield_domain_pages = min(self.low_yield_domain_pages, self.max_pages_per_domain)
         self.max_links_per_page = max(5, min(int(self.max_links_per_page), 200))
         self.storage_limit_bytes = max(1_000_000, int(self.storage_limit_bytes))
         self.minimum_free_disk_bytes = max(0, int(self.minimum_free_disk_bytes))

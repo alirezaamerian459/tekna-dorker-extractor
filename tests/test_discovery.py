@@ -16,6 +16,11 @@ class DiscoveryTests(unittest.TestCase):
         self.assertNotIn("secret", raw)
         self.assertIn("[configured]", raw)
 
+    def test_domain_limits_are_unlimited_by_default(self):
+        config = CrawlConfig()
+        self.assertEqual(config.max_pages_per_domain, 0)
+        self.assertEqual(config.low_yield_domain_pages, 0)
+
     def test_common_crawl_provider_filters_to_ir(self):
         provider = CommonCrawlProvider()
         provider.latest_index = lambda: "CC-MAIN-test"  # type: ignore[method-assign]

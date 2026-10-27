@@ -72,6 +72,7 @@ class CrawlEngine:
             self.store.budget.ensure_capacity(0)
             self.store.start_session(self.config)
             requeued = self.store.requeue_incomplete_urls(self.config.max_retries)
+            requeued_domain_limit = self.store.requeue_domain_limit_skips() if self.config.max_pages_per_domain == 0 else 0
             pruned_assets = self.store.skip_pending_host_prefixes(NON_CONTENT_HOST_PREFIXES, "asset/CDN host excluded")
             pruned_budget = self.store.skip_pending_over_budget_domains(self.config.max_pages_per_domain, "domain page budget already exhausted")
             self._started_at = time.monotonic()
@@ -83,6 +84,8 @@ class CrawlEngine:
             self.emit("stats", asdict(self.stats))
             if requeued:
                 self.emit("activity", f"Recovered {requeued} interrupted URL(s)")
+            if requeued_domain_limit:
+                self.emit("activity", f"Reopened {requeued_domain_limit} URL(s) skipped by the old domain page cap")
             if pruned_assets or pruned_budget:
                 self.emit("activity", f"Pruned {pruned_assets + pruned_budget} low-value queued URL(s)")
 
@@ -311,7 +314,7 @@ class CrawlEngine:
         domain = (urlsplit(url).hostname or "").lower()
         # The claimed URL is already counted as active, so allow exactly the
         # configured maximum and reject only the next page.
-        if self.store.domain_page_count(domain) > self.config.max_pages_per_domain:
+        if self.config.max_pages_per_domain and self.store.domain_page_count(domain) > self.config.max_pages_per_domain:
             self.store.complete_url(url, status="skipped")
             self.store.record_attempt(url, "domain-limit", 0, True, "domain page limit reached")
             self.emit("activity", f"Skipped domain page limit: {url}")
@@ -376,7 +379,7 @@ class CrawlEngine:
             self._domain_comment_pages[domain] += int(bool(page.comments))
             domain_pages = self._domain_pages[domain]
             domain_comment_pages = self._domain_comment_pages[domain]
-        if domain_pages >= self.config.max_pages_per_domain:
+        if self.config.max_pages_per_domain and domain_pages >= self.config.max_pages_per_domain:
             skipped = self.store.skip_pending_domain(domain, "domain page limit reached")
             if skipped:
                 self.emit("activity", f"Stopped expansion for {domain} after {domain_pages} pages")

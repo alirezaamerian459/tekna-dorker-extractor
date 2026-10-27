@@ -29,6 +29,6 @@ SQLite uses WAL mode and explicit transactions. The `comments.record_id` hash is
 
 `render.py` is an optional Playwright adapter. It is not used automatically and has no authentication, CAPTCHA, download, or proxy behavior.
 
-Comment extraction applies a noise filter before persistence. Structured `Comment` data and explicit comment-body fields are preferred; common controls, dates, reply counters, and empty-comment prompts are rejected. Internal links receive a path-aware priority, and domains with no valid comments after the low-yield threshold have their queued expansion skipped.
+Comment extraction applies a noise filter before persistence. Structured `Comment` data and explicit comment-body fields are preferred; common controls, dates, reply counters, and empty-comment prompts are rejected. Internal links receive a path-aware priority. Per-domain page and low-yield cutoffs are disabled by default so a later comment page is not missed; the global time, storage, queue, response-size, robots, and comment-count safeguards remain active.
 
 Focused public targets are seeded in a first-priority lane for app stores, marketplaces, and software/game catalogs. Comment/review paths and app/product pages receive the strongest queue priority, and existing pending URLs are re-scored by page shape so an old generic backlog cannot bury them. Digikala's public sitemap is seeded directly, and compressed sitemap indexes are decompressed only when they are clearly sitemap URLs; binary downloads remain excluded.

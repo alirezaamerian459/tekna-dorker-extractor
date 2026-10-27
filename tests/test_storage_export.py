@@ -21,6 +21,18 @@ class StorageExportTests(unittest.TestCase):
             self.assertEqual(store.reprioritize_pending(lambda _url, _priority: 15), 1)
             store.close()
 
+    def test_reopens_urls_skipped_by_old_domain_limit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = CrawlConfig(data_root=Path(directory) / "data", minimum_free_disk_bytes=0)
+            store = SQLiteStore(config.data_root, config)
+            url = "https://cafebazaar.ir/app/example"
+            store.upsert_url(url, "internal-link", 5)
+            store.complete_url(url, status="skipped")
+            store.record_attempt(url, "domain-limit", 0, True, "domain page limit reached")
+            self.assertEqual(store.requeue_domain_limit_skips(), 1)
+            self.assertTrue(store.has_pending_urls())
+            store.close()
+
     def test_comment_deduplication_and_domain_export(self):
         with tempfile.TemporaryDirectory() as directory:
             tmp_path = Path(directory)

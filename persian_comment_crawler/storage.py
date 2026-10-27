@@ -222,6 +222,8 @@ class SQLiteStore:
 
     def skip_pending_over_budget_domains(self, max_pages: int, reason: str) -> int:
         """Prune backlog for domains that already exhausted their page budget."""
+        if max_pages <= 0:
+            return 0
         with self.transaction() as db:
             cur = db.execute(
                 """UPDATE discovered_urls SET status='skipped',visited_at=?,last_error=?
@@ -231,6 +233,20 @@ class SQLiteStore:
                      GROUP BY domain HAVING COUNT(*) >= ?
                    )""",
                 (utc_now(), reason[:300], max(1, int(max_pages))),
+            )
+            return int(cur.rowcount)
+
+    def requeue_domain_limit_skips(self) -> int:
+        """Restore URLs skipped by an older per-domain cap when that cap is disabled."""
+        with self.transaction() as db:
+            cur = db.execute(
+                """UPDATE discovered_urls SET status='pending',visited_at=NULL,last_error=NULL
+                   WHERE status='skipped' AND (
+                     last_error='domain page limit reached' OR url IN (
+                       SELECT DISTINCT url FROM extraction_attempts
+                       WHERE method='domain-limit' AND error='domain page limit reached'
+                     )
+                   )"""
             )
             return int(cur.rowcount)
 
