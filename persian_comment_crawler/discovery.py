@@ -84,19 +84,23 @@ class CommonCrawlProvider:
     def __init__(self, user_agent: str = "PersianCommentCrawler/0.1", timeout: int = 20) -> None:
         self.user_agent = user_agent
         self.timeout = timeout
+        self.last_error: str | None = None
 
     def latest_index(self) -> str | None:
         request = urllib.request.Request(self.index_catalog_url, headers={"User-Agent": self.user_agent, "Accept": "application/json"})
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 values = json.loads(response.read(1_000_000).decode("utf-8", errors="replace"))
-        except Exception:
+        except Exception as exc:
+            self.last_error = str(exc)[:200]
             return None
         if not isinstance(values, list):
+            self.last_error = "Common Crawl returned an unexpected index catalog"
             return None
         for item in values:
             if isinstance(item, dict) and (item.get("id") or item.get("name")):
                 return str(item.get("id") or item.get("name"))
+        self.last_error = "Common Crawl returned no crawl indexes"
         return None
 
     def discover_ir(self, limit: int = 100) -> list[str]:
@@ -104,7 +108,10 @@ class CommonCrawlProvider:
         if not index_name:
             return []
         params = urllib.parse.urlencode({
-            "url": "*.ir/*",
+            # The broad wildcard form can time out at the public index proxy.
+            # Domain matching for the ccTLD is faster and still returns page URLs.
+            "url": "ir",
+            "matchType": "domain",
             "output": "json",
             "filter": "status:200",
             "collapse": "urlkey",
@@ -115,7 +122,8 @@ class CommonCrawlProvider:
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 raw = response.read(4_000_000).decode("utf-8", errors="replace")
-        except Exception:
+        except Exception as exc:
+            self.last_error = str(exc)[:200]
             return []
         urls: list[str] = []
         for line in raw.splitlines():
@@ -126,6 +134,7 @@ class CommonCrawlProvider:
             value = record.get("url", "") if isinstance(record, dict) else ""
             if value.startswith(("http://", "https://")) and (urllib.parse.urlsplit(value).hostname or "").lower().endswith(".ir"):
                 urls.append(value)
+        self.last_error = None
         return list(dict.fromkeys(urls))
 
 

@@ -30,7 +30,7 @@ class CrawlEngine:
         self.on_event = on_event or (lambda event, payload: None)
         self.fetcher = UrlFetcher(config)
         self.search_provider = BingSearchProvider(config.search_api_key or None)
-        self.common_crawl_provider = CommonCrawlProvider(config.user_agent, config.request_timeout_seconds)
+        self.common_crawl_provider = CommonCrawlProvider(config.user_agent, min(config.request_timeout_seconds, 12))
         self.state = CrawlState.IDLE
         self.stats = CrawlStats(remaining_storage_bytes=store.budget.remaining())
         self._pause_event = threading.Event()
@@ -109,6 +109,7 @@ class CrawlEngine:
             self._thread.join(timeout)
 
     def _seed_urls(self) -> None:
+        before = self.store.count("discovered_urls")
         if self.store.count("discovered_urls") > 0:
             return
         if self.config.auto_ir_discovery and self.search_provider.enabled:
@@ -121,18 +122,25 @@ class CrawlEngine:
                         continue
                     self.store.upsert_url(safe, f"{self.search_provider.name}: {query}", 25)
         if self.config.auto_ir_discovery:
-            self.emit("activity", "Discovering archived .ir pages through Common Crawl")
-            for url in self.common_crawl_provider.discover_ir(limit=max(50, self.config.search_results_per_query * 5)):
+            self.emit("activity", "Discovering archived .ir pages through Common Crawl (up to 12 seconds)")
+            common_urls = self.common_crawl_provider.discover_ir(limit=max(25, self.config.search_results_per_query * 3))
+            for url in common_urls:
                 try:
                     safe = normalize_url(url)
                 except UnsafeUrl:
                     continue
                 self.store.upsert_url(safe, "common-crawl-index", 35)
+            if self.common_crawl_provider.last_error:
+                self.emit("activity", f"Common Crawl unavailable: {self.common_crawl_provider.last_error}")
+            else:
+                self.emit("activity", f"Common Crawl returned {len(common_urls)} .ir URLs")
         if not self.config.seed_urls and not self.store.has_pending_urls():
             if self.config.auto_ir_discovery and not self.search_provider.enabled:
                 self.emit("activity", "Automatic .ir discovery needs a permitted Bing API key; add BING_SEARCH_API_KEY or enter one in the app")
             else:
                 self.emit("activity", "No discovery results were returned")
+        queued = self.store.count("discovered_urls") - before
+        self.emit("activity", f"Discovery complete — {queued} new URL(s) queued")
         for raw in self.config.seed_urls:
             try:
                 url = normalize_url(raw)
