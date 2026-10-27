@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#edf4ef" />
+    <meta name="description" content="Build focused, domain-scoped search queries and extract clean URLs from pasted search results." />
+    <title>Tekna — Dorker &amp; Extractor</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#top" aria-label="Tekna home">
+          <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span class="brand-name">tekna<span>/</span>dorker</span>
+        </a>
+        <div class="topbar-meta">
+          <span class="privacy-indicator"><span class="status-dot"></span>Runs in your browser</span>
+          <a class="top-link" href="#how-it-works">How it works</a>
+        </div>
+      </header>
+
+      <main id="top">
+        <section class="intro" aria-labelledby="page-title">
+          <div class="intro-copy">
+            <p class="eyebrow">Search workspace</p>
+            <h1 id="page-title">Find the signal.<br /><span>Leave the noise.</span></h1>
+            <p class="intro-text">Build focused searches for a domain you’re authorized to review, then pull clean links from results you paste in.</p>
+          </div>
+          <div class="intro-stamp" aria-label="Two tools, one workspace">
+            <div class="stamp-orbit"><span class="orbit-core"></span><span class="orbit-line"></span></div>
+            <p><strong>Two tools</strong><br />One focused workspace</p>
+          </div>
+        </section>
+
+        <nav class="mode-switch" aria-label="Choose a tool" role="tablist">
+          <button class="mode-tab is-active" id="tab-builder" type="button" role="tab" aria-selected="true" aria-controls="panel-builder" data-mode="builder">
+            <span class="tab-index">A</span><span>Query builder</span>
+          </button>
+          <button class="mode-tab" id="tab-extractor" type="button" role="tab" aria-selected="false" aria-controls="panel-extractor" data-mode="extractor" tabindex="-1">
+            <span class="tab-index">B</span><span>URL extractor</span>
+          </button>
+          <span class="tab-rule" aria-hidden="true"></span>
+        </nav>
+
+        <section class="tool-panel" id="panel-builder" role="tabpanel" aria-labelledby="tab-builder" data-panel="builder">
+          <div class="input-column">
+            <div class="column-heading">
+              <span class="step-label">Build a query</span>
+              <span class="quiet-label">01 / 02</span>
+            </div>
+            <label class="field-label" for="domain-input">Authorized domain</label>
+            <div class="domain-field">
+              <span class="domain-prefix" aria-hidden="true">site:</span>
+              <input id="domain-input" type="text" inputmode="url" autocomplete="url" spellcheck="false" placeholder="your-domain.com" aria-describedby="domain-hint domain-error" />
+              <button class="clear-field" id="clear-domain" type="button" aria-label="Clear domain" title="Clear domain">×</button>
+            </div>
+            <p class="field-hint" id="domain-hint">Use a domain you own or have permission to assess.</p>
+            <p class="field-error" id="domain-error" role="alert"></p>
+
+            <div class="field-label category-label">Choose what to look for</div>
+            <div class="category-list" id="category-list" aria-label="Search categories">
+              <label class="category-option">
+                <input type="checkbox" value="pages" checked />
+                <span class="category-check" aria-hidden="true"></span>
+                <span class="category-copy"><strong>Indexed pages</strong><small>Pages from this domain</small></span>
+                <span class="category-glyph" aria-hidden="true">Aa</span>
+              </label>
+              <label class="category-option">
+                <input type="checkbox" value="documents" checked />
+                <span class="category-check" aria-hidden="true"></span>
+                <span class="category-copy"><strong>Public documents</strong><small>PDF, Word and PowerPoint</small></span>
+                <span class="category-glyph" aria-hidden="true">▤</span>
+              </label>
+              <label class="category-option">
+                <input type="checkbox" value="support" />
+                <span class="category-check" aria-hidden="true"></span>
+                <span class="category-copy"><strong>Help &amp; support</strong><small>Guides and help pages</small></span>
+                <span class="category-glyph" aria-hidden="true">?</span>
+              </label>
+              <label class="category-option">
+                <input type="checkbox" value="updates" />
+                <span class="category-check" aria-hidden="true"></span>
+                <span class="category-copy"><strong>News &amp; updates</strong><small>News, blogs and releases</small></span>
+                <span class="category-glyph" aria-hidden="true">↗</span>
+              </label>
+              <label class="category-option">
+                <input type="checkbox" value="subdomains" />
+                <span class="category-check" aria-hidden="true"></span>
+                <span class="category-copy"><strong>Subdomains</strong><small>Pages indexed under subdomains</small></span>
+                <span class="category-glyph" aria-hidden="true">⌘</span>
+              </label>
+            </div>
+            <div class="builder-footer">
+              <span class="scope-note"><span class="scope-icon" aria-hidden="true">⌖</span>Searches stay scoped to your domain</span>
+              <button class="text-button" id="select-all" type="button">Select all</button>
+            </div>
+          </div>
+
+          <div class="output-column">
+            <div class="column-heading output-heading">
+              <div><span class="step-label">Query desk</span><span class="result-count" id="query-count">0 queries</span></div>
+              <button class="copy-all-button" id="copy-all" type="button" disabled><span aria-hidden="true">▢</span> Copy all</button>
+            </div>
+            <div class="query-empty" id="query-empty">
+              <div class="empty-graphic" aria-hidden="true"><span class="empty-ring ring-one"></span><span class="empty-ring ring-two"></span><span class="empty-cross"></span></div>
+              <h2>Your queries will appear here</h2>
+              <p>Enter a domain and choose a few search categories to get started.</p>
+            </div>
+            <div class="query-list" id="query-list" aria-live="polite"></div>
+            <div class="output-bottom">
+              <span class="engine-note"><span class="engine-mark" aria-hidden="true">G</span> Opens in Google Search</span>
+              <span class="local-note">No requests are made until you open a query</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="tool-panel extractor-panel" id="panel-extractor" role="tabpanel" aria-labelledby="tab-extractor" data-panel="extractor" hidden>
+          <div class="input-column extractor-input-column">
+            <div class="column-heading">
+              <span class="step-label">Paste search results</span>
+              <span class="quiet-label">01 / 02</span>
+            </div>
+            <label class="field-label" for="source-input">Text or copied page source</label>
+            <textarea id="source-input" class="source-input" placeholder="Paste search result text or HTML here…" spellcheck="false"></textarea>
+            <div class="extract-options">
+              <label class="field-label" for="filter-domain">Optional domain filter</label>
+              <div class="filter-field"><span aria-hidden="true">⌖</span><input id="filter-domain" type="text" inputmode="url" spellcheck="false" placeholder="Only keep links from this domain" /></div>
+              <p class="field-hint">Leave blank to keep every valid web link.</p>
+            </div>
+            <div class="extract-actions">
+              <button class="primary-button" id="extract-button" type="button"><span aria-hidden="true">⌕</span> Extract URLs</button>
+              <button class="text-button" id="clear-source" type="button">Clear</button>
+            </div>
+          </div>
+          <div class="output-column extractor-output-column">
+            <div class="column-heading output-heading">
+              <div><span class="step-label">Clean links</span><span class="result-count" id="url-count">0 links</span></div>
+              <div class="output-actions">
+                <button class="copy-all-button" id="copy-urls" type="button" disabled><span aria-hidden="true">▢</span> Copy</button>
+                <button class="copy-all-button download-button" id="download-urls" type="button" disabled><span aria-hidden="true">↓</span> .txt</button>
+              </div>
+            </div>
+            <div class="url-empty" id="url-empty">
+              <div class="empty-graphic link-graphic" aria-hidden="true"><span class="link-loop loop-one"></span><span class="link-loop loop-two"></span></div>
+              <h2>Clean links land here</h2>
+              <p>Duplicates and non-web addresses are removed automatically.</p>
+            </div>
+            <ol class="url-list" id="url-list" aria-live="polite"></ol>
+            <div class="output-bottom">
+              <span class="engine-note"><span class="engine-mark local-mark" aria-hidden="true">↳</span>Processed on this device</span>
+              <span class="local-note">Results are not saved or uploaded</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="notes-strip" id="how-it-works" aria-label="About this workspace">
+          <div class="note-block"><span class="note-symbol" aria-hidden="true">01</span><p><strong>Scope first.</strong> Queries are built around the domain you enter.</p></div>
+          <div class="note-block"><span class="note-symbol" aria-hidden="true">02</span><p><strong>Search by choice.</strong> Nothing opens until you select a query.</p></div>
+          <div class="note-block"><span class="note-symbol" aria-hidden="true">03</span><p><strong>Keep it local.</strong> Your input stays in this browser tab.</p></div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <span>Tekna Dorker &amp; Extractor</span>
+        <span>For authorized research and content discovery</span>
+      </footer>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>
