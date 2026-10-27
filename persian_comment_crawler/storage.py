@@ -186,6 +186,11 @@ class SQLiteStore:
         with self._lock:
             return self._connection.execute("SELECT 1 FROM discovered_urls WHERE status='pending' LIMIT 1").fetchone() is not None
 
+    def requeue_incomplete_urls(self) -> int:
+        with self.transaction() as db:
+            cur = db.execute("UPDATE discovered_urls SET status='pending' WHERE status='active'")
+            return int(cur.rowcount)
+
     def complete_url(self, url: str, error: str | None = None) -> None:
         with self.transaction() as db:
             db.execute("UPDATE discovered_urls SET status=?,visited_at=?,last_error=? WHERE url=?", ("error" if error else "done", utc_now(), error, url))

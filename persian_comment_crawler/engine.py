@@ -55,12 +55,15 @@ class CrawlEngine:
             self._pause_event.clear()
             self.store.budget.ensure_capacity(0)
             self.store.start_session(self.config)
+            requeued = self.store.requeue_incomplete_urls()
             self._started_at = time.monotonic()
             self.state = CrawlState.RUNNING
             self.store.set_session_state(self.state)
             self._thread = threading.Thread(target=self._run, name="crawler-dispatcher", daemon=True)
             self._thread.start()
             self.emit("state", self.state)
+            if requeued:
+                self.emit("activity", f"Recovered {requeued} interrupted URL(s)")
 
     def pause(self) -> None:
         with self._state_lock:
@@ -110,7 +113,7 @@ class CrawlEngine:
 
     def _seed_urls(self) -> None:
         before = self.store.count("discovered_urls")
-        if self.store.count("discovered_urls") > 0:
+        if self.store.has_pending_urls():
             return
         if self.config.auto_ir_discovery and self.search_provider.enabled:
             self.emit("activity", "Discovering Iranian .ir pages through the configured search API")
