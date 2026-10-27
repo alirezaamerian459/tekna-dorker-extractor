@@ -6,7 +6,7 @@ import time
 import urllib.error
 import urllib.request
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -288,7 +288,8 @@ class CrawlEngine:
         try:
             self.emit("activity", "Starting discovery…")
             self._seed_urls()
-            futures = set()
+            futures: dict[Future[None], str] = {}
+            active_domains: set[str] = set()
             while not self._stop_event.is_set():
                 if self.config.safe_test_mode and time.monotonic() - self._started_at >= self.config.test_duration_seconds:
                     self.emit("activity", "Safe Test Mode duration reached")
@@ -296,13 +297,16 @@ class CrawlEngine:
                 if not self._wait_if_paused():
                     break
                 while len(futures) < self.config.concurrency and not self._stop_event.is_set():
-                    row = self.store.claim_url()
+                    row = self.store.claim_url(tuple(active_domains))
                     if row is None:
                         break
-                    futures.add(self._executor.submit(self._process_url, row["url"]))
+                    domain = str(row["domain"])
+                    active_domains.add(domain)
+                    future = self._executor.submit(self._process_url, row["url"])
+                    futures[future] = domain
                 done = {future for future in futures if future.done()}
                 for future in done:
-                    futures.remove(future)
+                    active_domains.discard(futures.pop(future))
                     try:
                         future.result()
                     except Exception as exc:

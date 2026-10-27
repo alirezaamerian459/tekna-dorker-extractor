@@ -24,11 +24,14 @@ class CrawlConfig:
     storage_limit_bytes: int = 1_000_000_000
     minimum_free_disk_bytes: int = 10_000_000_000
     maximum_comments: int = 5_000
-    concurrency: int = 2
+    # Workers are assigned distinct active domains by the scheduler.
+    concurrency: int = 8
     request_timeout_seconds: int = 20
     # Pace requests to the same host and when switching between hosts.
     domain_cooldown_seconds: float = 2.0
-    inter_domain_cooldown_seconds: float = 2.0
+    # Keep different domains parallel by default; set >0 only for a global
+    # cross-domain throttle.
+    inter_domain_cooldown_seconds: float = 0.0
     max_retries: int = 2
     max_response_bytes: int = 4_000_000
     # Zero disables the per-domain page cap. Overall session, storage, queue,
@@ -49,7 +52,7 @@ class CrawlConfig:
     data_root: Path = field(default_factory=default_data_root)
 
     def __post_init__(self) -> None:
-        self.concurrency = max(1, min(int(self.concurrency), 16))
+        self.concurrency = max(1, min(int(self.concurrency), 32))
         self.max_retries = max(0, min(int(self.max_retries), 8))
         self.search_results_per_query = max(1, min(int(self.search_results_per_query), 50))
         self.maximum_comments = max(1, int(self.maximum_comments))

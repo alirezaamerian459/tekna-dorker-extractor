@@ -34,6 +34,21 @@ class StorageExportTests(unittest.TestCase):
             self.assertEqual(store.count("discovered_urls"), 2)
             store.close()
 
+    def test_claim_url_skips_domains_already_assigned_to_a_worker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = CrawlConfig(data_root=Path(directory) / "data", minimum_free_disk_bytes=0)
+            store = SQLiteStore(config.data_root, config)
+            store.upsert_urls([
+                ("https://alpha.ir/one", "internal-link", 5),
+                ("https://alpha.ir/two", "internal-link", 6),
+                ("https://beta.ir/one", "internal-link", 7),
+            ])
+            first = store.claim_url()
+            self.assertEqual(first["domain"], "alpha.ir")
+            second = store.claim_url(("alpha.ir",))
+            self.assertEqual(second["domain"], "beta.ir")
+            store.close()
+
     def test_reopens_urls_skipped_by_old_domain_limit(self):
         with tempfile.TemporaryDirectory() as directory:
             config = CrawlConfig(data_root=Path(directory) / "data", minimum_free_disk_bytes=0)

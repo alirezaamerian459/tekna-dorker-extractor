@@ -104,9 +104,9 @@ class CrawlerApp(tk.Tk):
         settings.pack(fill="x", pady=(0, 14))
         self.duration_var = tk.IntVar(value=10)
         self.max_comments_var = tk.IntVar(value=5000)
-        # Four workers improve throughput across different domains while the
-        # engine's per-domain cooldown still prevents bursty crawling.
-        self.concurrency_var = tk.IntVar(value=4)
+        # Eight workers can cover many domains in parallel; the scheduler
+        # assigns at most one active URL to each domain.
+        self.concurrency_var = tk.IntVar(value=8)
         for label, variable, width in (("Minutes", self.duration_var, 5), ("Max comments", self.max_comments_var, 7), ("Workers", self.concurrency_var, 4)):
             ttk.Label(settings, text=label, style="Muted.TLabel").pack(side="left", padx=(0, 4))
             ttk.Spinbox(settings, from_=1, to=1440, textvariable=variable, width=width).pack(side="left", padx=(0, 13))

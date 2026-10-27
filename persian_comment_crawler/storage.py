@@ -184,9 +184,14 @@ class SQLiteStore:
                     db.execute("UPDATE domains SET discovered_count=discovered_count+1,last_seen=? WHERE domain=?", (now, domain))
             return inserted
 
-    def claim_url(self) -> sqlite3.Row | None:
+    def claim_url(self, excluded_domains: tuple[str, ...] = ()) -> sqlite3.Row | None:
         with self.transaction() as db:
-            row = db.execute("SELECT * FROM discovered_urls WHERE status='pending' ORDER BY priority ASC, discovered_at ASC LIMIT 1").fetchone()
+            if excluded_domains:
+                placeholders = ",".join("?" for _ in excluded_domains)
+                query = f"SELECT * FROM discovered_urls WHERE status='pending' AND domain NOT IN ({placeholders}) ORDER BY priority ASC, discovered_at ASC LIMIT 1"
+                row = db.execute(query, excluded_domains).fetchone()
+            else:
+                row = db.execute("SELECT * FROM discovered_urls WHERE status='pending' ORDER BY priority ASC, discovered_at ASC LIMIT 1").fetchone()
             if row is None:
                 return None
             db.execute("UPDATE discovered_urls SET status='active',attempts=attempts+1 WHERE url=?", (row["url"],))

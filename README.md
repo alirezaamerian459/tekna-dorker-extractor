@@ -43,7 +43,7 @@ To build a Windows executable after installing PyInstaller:
 - Seeds a first-priority lane for CafeBazaar, Myket, Digikala, Torob, Soft98, and VGDL; comment/review URLs, app/product pages, and Digikala's public sitemap are visited before the ordinary `.ir` backlog, while navigation and downloads stay behind them.
 - Does not impose a per-domain page cap or no-comments cutoff by default; overall session duration, storage, queue size, response size, robots rules, comment cap, and asset filters still prevent unbounded resource use.
 - Expands sitemap indexes and child sitemaps without the ordinary 30-link page cap, and keeps every detected app/product/game URL in the queue; large URL batches are committed transactionally for crash-resistant discovery.
-- Paces same-domain requests and switches between different websites with a two-second cooldown, while worker concurrency remains available for parsing and queue work.
+- Uses dynamic per-domain worker lanes: one active URL per host, many different hosts in parallel, and a two-second cooldown per host. There is no global cross-site wait by default, so throughput scales with the number of available websites instead of alphabet buckets.
 - Checks robots.txt, uses a descriptive user agent, applies domain cooldowns, and rejects non-HTTP(S), embedded-credential, private, loopback, link-local, reserved, and multicast targets.
 - Detects semantic comment structures, WordPress-style classes, reviews, replies, and Schema.org JSON-LD comments.
 - Rejects common comment-widget noise such as reply controls, dates, counters, and "first comment" placeholders before saving.
