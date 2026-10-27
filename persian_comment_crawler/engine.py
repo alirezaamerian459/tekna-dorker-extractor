@@ -55,7 +55,7 @@ class CrawlEngine:
             self._pause_event.clear()
             self.store.budget.ensure_capacity(0)
             self.store.start_session(self.config)
-            requeued = self.store.requeue_incomplete_urls()
+            requeued = self.store.requeue_incomplete_urls(self.config.max_retries)
             self._started_at = time.monotonic()
             self.state = CrawlState.RUNNING
             self.store.set_session_state(self.state)

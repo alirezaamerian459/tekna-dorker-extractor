@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gzip
 import io
+import ssl
 import time
 import urllib.error
 import urllib.request
@@ -9,6 +10,15 @@ from dataclasses import dataclass
 
 from .config import CrawlConfig
 from .policy import validate_public_url
+
+
+def certificate_context() -> ssl.SSLContext:
+    """Use certifi's maintained CA bundle when available on Windows."""
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        return ssl.create_default_context()
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,7 +40,7 @@ class UrlFetcher:
         try:
             safe_url = validate_public_url(url)
             request = urllib.request.Request(safe_url, headers={"User-Agent": self.config.user_agent, "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,application/rss+xml;q=0.8"})
-            with urllib.request.urlopen(request, timeout=self.config.request_timeout_seconds) as response:
+            with urllib.request.urlopen(request, timeout=self.config.request_timeout_seconds, context=certificate_context()) as response:
                 content_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
                 if content_type and not any(part in content_type for part in ("text/", "xml", "json", "javascript")):
                     return FetchResult(safe_url, int(response.status), content_type, b"", "non-text content skipped", time.monotonic() - started)
