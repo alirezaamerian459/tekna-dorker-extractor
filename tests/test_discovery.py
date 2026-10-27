@@ -74,5 +74,5 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(link_priority("https://www.digikala.com/sitemap.xml", 50), 7)
         self.assertEqual(link_priority("https://dkstatics-public.digikala.com/digikala-site-map/part.gz", 50), 7)
         self.assertEqual(link_priority("https://example.ir/article/1/comments", 50), 10)
-        self.assertIn(("https://www.digikala.com/sitemap.xml", "focused-marketplace-sitemap", 7), FOCUSED_ENTRYPOINTS)
+        self.assertIn(("https://www.digikala.com/sitemap.xml", "focused-marketplace-sitemap", 1), FOCUSED_ENTRYPOINTS)
         self.assertTrue(same_domain("https://digikala.com/product/dkp-1", "www.digikala.com"))

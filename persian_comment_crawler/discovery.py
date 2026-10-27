@@ -18,14 +18,14 @@ COMMENT_PATH_PARTS = {"comment", "comments", "discussion", "discussions", "feedb
 APP_STORE_DOMAINS = {"cafebazaar.ir", "myket.ir"}
 FOCUSED_DOMAINS = APP_STORE_DOMAINS | {"digikala.com", "torob.com", "soft98.ir", "vgdl.ir"}
 FOCUSED_ENTRYPOINTS = (
-    ("https://cafebazaar.ir/app", "focused-app-store", 12),
-    ("https://myket.ir/apps", "focused-app-store", 12),
-    ("https://myket.ir/games", "focused-app-store", 12),
-    ("https://www.digikala.com/sitemap.xml", "focused-marketplace-sitemap", 7),
-    ("https://www.digikala.com/", "focused-marketplace", 18),
-    ("https://torob.com/", "focused-marketplace", 18),
-    ("https://soft98.ir/", "focused-software", 18),
-    ("https://vgdl.ir/", "focused-games", 18),
+    ("https://www.digikala.com/sitemap.xml", "focused-marketplace-sitemap", 1),
+    ("https://cafebazaar.ir/app", "focused-app-store", 2),
+    ("https://myket.ir/apps", "focused-app-store", 2),
+    ("https://myket.ir/games", "focused-app-store", 2),
+    ("https://www.digikala.com/", "focused-marketplace", 3),
+    ("https://torob.com/", "focused-marketplace", 3),
+    ("https://soft98.ir/", "focused-software", 3),
+    ("https://vgdl.ir/", "focused-games", 3),
 )
 
 
