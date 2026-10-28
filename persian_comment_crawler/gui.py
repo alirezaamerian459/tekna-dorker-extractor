@@ -70,6 +70,24 @@ class CrawlerApp(tk.Tk):
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
         content = self.comments_tab
 
+        # Keep the primary Comments controls above the dense setup/dashboard
+        # panels.  The setup panel can be taller than a small laptop window;
+        # placing these actions here prevents Start from being pushed below
+        # the visible area when the window is resized.
+        comments_toolbar = ttk.Frame(content, style="Card.TFrame", padding=(12, 8))
+        comments_toolbar.pack(fill="x", padx=24, pady=(0, 10))
+        ttk.Label(comments_toolbar, text="Comments mode", foreground="#d9f27f", background="#173b3f", font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 14))
+        self.start_button = ttk.Button(comments_toolbar, text="Start", style="Start.TButton", command=self._start)
+        self.start_button.pack(side="left", padx=(0, 7))
+        self.pause_button = ttk.Button(comments_toolbar, text="Pause", command=self._pause)
+        self.pause_button.pack(side="left", padx=(0, 7))
+        self.resume_button = ttk.Button(comments_toolbar, text="Resume", command=self._resume)
+        self.resume_button.pack(side="left", padx=(0, 7))
+        self.stop_button = ttk.Button(comments_toolbar, text="Stop", command=self._stop)
+        self.stop_button.pack(side="left", padx=(0, 7))
+        self.emergency_button = ttk.Button(comments_toolbar, text="Emergency stop", style="Danger.TButton", command=self._emergency_stop)
+        self.emergency_button.pack(side="right")
+
         cards = ttk.Frame(content)
         cards.pack(fill="x", padx=24)
         self.card_values: dict[str, ttk.Label] = {}
@@ -156,19 +174,6 @@ class CrawlerApp(tk.Tk):
         for label, variable, width in (("Minutes", self.duration_var, 5), ("Max comments", self.max_comments_var, 7), ("Workers", self.concurrency_var, 4)):
             ttk.Label(settings, text=label, style="Muted.TLabel").pack(side="left", padx=(0, 4))
             ttk.Spinbox(settings, from_=1, to=1440, textvariable=variable, width=width).pack(side="left", padx=(0, 13))
-
-        controls = ttk.Frame(left, style="Card.TFrame")
-        controls.pack(fill="x", pady=(5, 0))
-        self.start_button = ttk.Button(controls, text="Start", style="Start.TButton", command=self._start)
-        self.start_button.pack(side="left", padx=(0, 7))
-        self.pause_button = ttk.Button(controls, text="Pause", command=self._pause)
-        self.pause_button.pack(side="left", padx=(0, 7))
-        self.resume_button = ttk.Button(controls, text="Resume", command=self._resume)
-        self.resume_button.pack(side="left", padx=(0, 7))
-        self.stop_button = ttk.Button(controls, text="Stop", command=self._stop)
-        self.stop_button.pack(side="left", padx=(0, 7))
-        self.emergency_button = ttk.Button(controls, text="Emergency stop", style="Danger.TButton", command=self._emergency_stop)
-        self.emergency_button.pack(side="right")
 
         exports = ttk.Frame(left, style="Card.TFrame")
         exports.pack(fill="x", pady=(18, 0))
