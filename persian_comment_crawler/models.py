@@ -35,12 +35,31 @@ class CommentRecord:
 
 
 @dataclass(slots=True)
+class ArticleRecord:
+    title: str
+    body: str
+    source_url: str
+    domain: str
+    canonical_url: str | None = None
+    excerpt: str | None = None
+    publication_date: str | None = None
+    author: str | None = None
+    extraction_method: str = "article-html"
+    language_confidence: float = 0.0
+    word_count: int = 0
+    discovered_at: str = field(default_factory=utc_now)
+    record_id: str | None = None
+
+
+@dataclass(slots=True)
 class CrawlStats:
     discovered_websites: int = 0
     visited_pages: int = 0
     processed_pages: int = 0
     pages_with_comments: int = 0
     unique_comments: int = 0
+    pages_with_articles: int = 0
+    unique_articles: int = 0
     pending_urls: int = 0
     active_urls: int = 0
     failed_urls: int = 0

@@ -27,6 +27,23 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class EngineControlTests(unittest.TestCase):
+    def test_article_mode_persists_article_records_instead_of_comments(self):
+        import tempfile
+        body = "این گزارش فارسی برای آزمون حالت مقاله نوشته شده و اطلاعات مفیدی درباره موضوع ارائه می‌کند. " * 5
+        html = f"<html><head><title>گزارش آزمایشی</title></head><body><article><h1>گزارش آزمایشی</h1><p>{body}</p></article></body></html>"
+        with tempfile.TemporaryDirectory() as directory:
+            config = CrawlConfig(data_root=Path(directory) / "data", auto_ir_discovery=False, minimum_free_disk_bytes=0, domain_cooldown_seconds=0, content_mode="articles")
+            store = SQLiteStore(config.data_root, config)
+            store.upsert_url("https://example.ir/news/1", "seed", 1)
+            row = store.claim_url()
+            engine = CrawlEngine(config, store)
+            engine.fetcher.fetch = lambda url: FetchResult(url, 200, "text/html", html.encode("utf-8"), None)  # type: ignore[method-assign]
+            with patch.object(engine, "_allowed_by_robots", return_value=True):
+                engine._process_url(row["url"])
+            self.assertEqual(store.count("articles"), 1)
+            self.assertEqual(store.count("comments"), 0)
+            store.close()
+
     def test_adaptive_host_pacing_speeds_clean_hosts_and_backs_off(self):
         import tempfile
         with tempfile.TemporaryDirectory() as directory:

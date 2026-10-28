@@ -44,6 +44,12 @@ COMMENT_NOISE_PATTERNS = (
 STRONG_TEXT_HINTS = (
     "comment-body", "comment-content", "comment-text", "review-text", "review-body", "ribbon-content", "appcomment__body", "app-comment-body", "commenttext",
 )
+ARTICLE_HINTS = (
+    "article", "article-body", "articlebody", "entry-content", "post-content",
+    "story-body", "news-body", "content-body", "main-content", "body-content",
+)
+ARTICLE_TYPES = {"article", "newsarticle", "blogposting", "report", "scholarlyarticle"}
+ARTICLE_SKIP_TAGS = {"script", "style", "nav", "header", "footer", "form", "aside", "noscript"}
 
 
 @dataclass(slots=True)
@@ -102,11 +108,24 @@ class ExtractedComment:
 
 
 @dataclass(frozen=True, slots=True)
+class ExtractedArticle:
+    title: str
+    body: str
+    canonical_url: str | None = None
+    excerpt: str | None = None
+    publication_date: str | None = None
+    author: str | None = None
+    confidence: float = 0.0
+    method: str = "article-html"
+
+
+@dataclass(frozen=True, slots=True)
 class PageExtraction:
     comments: tuple[ExtractedComment, ...]
     links: tuple[str, ...]
     confidence: float
     method: str
+    article: ExtractedArticle | None = None
 
 
 def _walk(node: Node):
@@ -204,6 +223,134 @@ def _json_ld_comments(parser: TreeParser) -> list[ExtractedComment]:
     return results
 
 
+def _meta_value(parser: TreeParser, names: tuple[str, ...]) -> str | None:
+    wanted = {name.casefold() for name in names}
+    for node in _walk(parser.root):
+        if node.tag != "meta":
+            continue
+        keys = {node.attrs.get("name", "").casefold(), node.attrs.get("property", "").casefold(), node.attrs.get("itemprop", "").casefold()}
+        if keys & wanted and node.attrs.get("content"):
+            return node.attrs["content"].strip()
+    return None
+
+
+def _clean_article_text(node: Node) -> str:
+    chunks: list[str] = []
+
+    def visit(candidate: Node) -> None:
+        if candidate.tag in ARTICLE_SKIP_TAGS:
+            return
+        marker = candidate.marker()
+        if candidate is not node and any(hint in marker for hint in ("comment", "comments", "comment-list", "comment-section")):
+            return
+        chunks.extend(part.strip() for part in candidate.text_parts if part.strip())
+        for child in candidate.children:
+            visit(child)
+
+    visit(node)
+    return re.sub(r"\s+", " ", " ".join(chunks)).strip()
+
+
+def _node_text_by_tag(parser: TreeParser, tag: str) -> str | None:
+    for node in _walk(parser.root):
+        if node.tag == tag and not _has_ancestor_tag(node, {"nav", "header", "footer"}):
+            text = re.sub(r"\s+", " ", node.text()).strip()
+            if text:
+                return text
+    return None
+
+
+def _json_ld_article(parser: TreeParser) -> ExtractedArticle | None:
+    for node in _walk(parser.root):
+        if node.tag != "script" or node.attrs.get("type", "").lower() not in {"application/ld+json", "application/json"}:
+            continue
+        try:
+            data = json.loads(node.text())
+        except (ValueError, TypeError):
+            continue
+        objects = data if isinstance(data, list) else ([data, *data.get("@graph", [])] if isinstance(data, dict) and isinstance(data.get("@graph"), list) else [data])
+        for item in objects:
+            if not isinstance(item, dict):
+                continue
+            raw_types = item.get("@type", "")
+            types = {str(value).replace(" ", "").casefold() for value in raw_types} if isinstance(raw_types, list) else {str(raw_types).replace(" ", "").casefold()}
+            if not types & ARTICLE_TYPES:
+                continue
+            body = str(item.get("articleBody") or item.get("text") or "").strip()
+            title = str(item.get("headline") or item.get("name") or "").strip()
+            if len(body) < 120 or not title:
+                continue
+            author = item.get("author")
+            if isinstance(author, dict):
+                author = author.get("name")
+            return ExtractedArticle(
+                title=title,
+                body=re.sub(r"\s+", " ", body),
+                canonical_url=str(item.get("url") or "").strip() or None,
+                excerpt=str(item.get("description") or "").strip() or None,
+                publication_date=str(item.get("datePublished") or item.get("dateCreated") or "").strip() or None,
+                author=str(author or "").strip() or None,
+                confidence=0.99,
+                method="article-schema.org-jsonld",
+            )
+    return None
+
+
+def _extract_article(parser: TreeParser, page_url: str) -> ExtractedArticle | None:
+    structured = _json_ld_article(parser)
+    title = _meta_value(parser, ("og:title", "twitter:title", "headline")) or _node_text_by_tag(parser, "h1") or _node_text_by_tag(parser, "title")
+    canonical = None
+    for node in _walk(parser.root):
+        if node.tag == "link" and "canonical" in node.attrs.get("rel", "").casefold() and node.attrs.get("href"):
+            canonical = urljoin(page_url, node.attrs["href"])
+            break
+    if structured is not None:
+        return structured if structured.canonical_url else ExtractedArticle(
+            structured.title, structured.body, canonical, structured.excerpt,
+            structured.publication_date, structured.author, structured.confidence, structured.method,
+        )
+    candidates: list[tuple[int, Node, str]] = []
+    for node in _walk(parser.root):
+        if node.tag in ARTICLE_SKIP_TAGS or _has_ancestor_tag(node, {"nav", "header", "footer", "form"}):
+            continue
+        marker = node.marker()
+        if node.tag not in {"article", "main", "section"} and not any(hint in marker for hint in ARTICLE_HINTS):
+            continue
+        body = _clean_article_text(node)
+        if len(body) < 120 or len(body) > 250_000:
+            continue
+        score = len(body)
+        if node.tag == "article":
+            score += 30_000
+        if "articlebody" in marker or "article-body" in marker:
+            score += 20_000
+        candidates.append((score, node, body))
+    if not candidates:
+        return None
+    _score, _node, body = max(candidates, key=lambda item: item[0])
+    classification = classify_persian(body)
+    if classification.language not in {"fa", "uncertain"}:
+        return None
+    date = _meta_value(parser, ("article:published_time", "datepublished", "date", "pubdate"))
+    if not date:
+        for node in _walk(parser.root):
+            if node.tag == "time":
+                date = node.attrs.get("datetime") or re.sub(r"\s+", " ", node.text()).strip() or None
+                if date:
+                    break
+    author = _meta_value(parser, ("author", "article:author"))
+    return ExtractedArticle(
+        title=(title or urlsplit(page_url).path.rstrip("/").rsplit("/", 1)[-1] or "Untitled article").strip(),
+        body=body,
+        canonical_url=canonical,
+        excerpt=body[:360].rstrip() + ("…" if len(body) > 360 else ""),
+        publication_date=date,
+        author=author,
+        confidence=min(0.98, max(0.45, classification.confidence + 0.2)),
+        method="article-html",
+    )
+
+
 def _extract_from_candidate(node: Node, base_url: str, method: str) -> ExtractedComment | None:
     text_node = next((child for child in _walk(node) if child is not node and _node_has_hint(child, TEXT_HINTS)), None)
     text = text_node.text() if text_node else node.text()
@@ -237,7 +384,7 @@ def extract_page(html: str, page_url: str) -> PageExtraction:
     try:
         parser.feed(html)
     except Exception:
-        return PageExtraction((), (), 0.0, "invalid-html")
+        return PageExtraction((), (), 0.0, "invalid-html", None)
 
     comments = _json_ld_comments(parser)
     candidates: list[Node] = []
@@ -269,4 +416,10 @@ def extract_page(html: str, page_url: str) -> PageExtraction:
         if urlsplit(href).scheme in {"http", "https"}:
             links.append(href)
     confidence = min(1.0, max((comment.confidence for comment in comments), default=0.0) + (0.1 if candidates else 0.0))
-    return PageExtraction(tuple(comments), tuple(dict.fromkeys(links)), confidence, "schema.org-jsonld+html-heuristic" if comments else "html-heuristic")
+    article = _extract_article(parser, page_url)
+    if article is not None:
+        confidence = max(confidence, article.confidence)
+    method = "schema.org-jsonld+html-heuristic" if comments else "html-heuristic"
+    if article is not None:
+        method = f"{method}+{article.method}"
+    return PageExtraction(tuple(comments), tuple(dict.fromkeys(links)), confidence, method, article)

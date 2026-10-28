@@ -24,6 +24,9 @@ class CrawlConfig:
     storage_limit_bytes: int = 1_000_000_000
     minimum_free_disk_bytes: int = 10_000_000_000
     maximum_comments: int = 5_000
+    maximum_articles: int = 5_000
+    # The active UI tab selects which record type the run persists.
+    content_mode: str = "comments"
     # Workers are assigned distinct active domains by the scheduler.
     concurrency: int = 8
     request_timeout_seconds: int = 20
@@ -59,6 +62,10 @@ class CrawlConfig:
         self.max_retries = max(0, min(int(self.max_retries), 8))
         self.search_results_per_query = max(1, min(int(self.search_results_per_query), 50))
         self.maximum_comments = max(1, int(self.maximum_comments))
+        self.maximum_articles = max(1, int(self.maximum_articles))
+        self.content_mode = str(self.content_mode).strip().lower()
+        if self.content_mode not in {"comments", "articles"}:
+            self.content_mode = "comments"
         self.max_pages_per_domain = max(0, min(int(self.max_pages_per_domain), 1_000_000))
         self.low_yield_domain_pages = max(0, min(int(self.low_yield_domain_pages), 1_000_000))
         if self.max_pages_per_domain:

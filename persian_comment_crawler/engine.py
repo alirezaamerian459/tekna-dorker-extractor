@@ -15,7 +15,7 @@ from .config import CrawlConfig
 from .discovery import FOCUSED_DOMAINS, FOCUSED_ENTRYPOINTS, BingSearchProvider, CommonCrawlProvider, TrancoProvider, default_search_queries, discovery_candidates, is_catalog_url, is_sitemap_page, link_priority
 from .extractor import extract_page
 from .fetcher import UrlFetcher
-from .models import CommentRecord, CrawlState, CrawlStats, utc_now
+from .models import ArticleRecord, CommentRecord, CrawlState, CrawlStats, utc_now
 from .policy import UnsafeUrl, normalize_url
 from .storage import SQLiteStore, StorageBudgetExceeded
 
@@ -45,6 +45,8 @@ class CrawlEngine:
             pending_urls=persisted.get("pending_urls", 0),
             active_urls=persisted.get("active_urls", 0),
             failed_urls=persisted.get("failed_urls", 0),
+            pages_with_articles=persisted.get("pages_with_articles", 0),
+            unique_articles=persisted.get("unique_articles", 0),
             errors=persisted["errors"],
             storage_bytes=persisted["storage_bytes"],
             remaining_storage_bytes=persisted["remaining_storage_bytes"],
@@ -334,6 +336,8 @@ class CrawlEngine:
             **queue_state,
             "focused": self.store.focused_snapshot(sorted(FOCUSED_DOMAINS)),
         })
+        if self.config.content_mode == "articles":
+            self.emit("articles", self.store.latest_articles())
 
     def _run(self) -> None:
         self._executor = ThreadPoolExecutor(max_workers=self.config.concurrency, thread_name_prefix="crawler-worker")
@@ -443,18 +447,36 @@ class CrawlEngine:
         if result.error:
             if result.error == "non-text content skipped":
                 self.store.complete_url(url, status="skipped")
-                self.store.record_attempt(url, "http", result.status, True, result.error)
+                self.store.record_attempt(url, "http", 0, True, result.error)
                 self.emit("activity", f"Skipped non-text content: {url}")
                 return
             self.stats.errors += 1
             self.store.complete_url(url, result.error)
-            self.store.record_attempt(url, "http", result.status, False, result.error)
+            self.store.record_attempt(url, "http", 0, False, result.error)
             self.emit("activity", f"Fetch failed: {url} ({result.error})")
             return
         text = self.fetcher.decode(result)
         page = extract_page(text, url)
         new_comments = 0
-        if self.store.count("comments") < self.config.maximum_comments:
+        new_articles = 0
+        if self.config.content_mode == "articles":
+            if page.article is not None and self.store.count("articles") < self.config.maximum_articles:
+                item = page.article
+                if self.store.save_article(ArticleRecord(
+                    title=item.title,
+                    body=item.body,
+                    source_url=url,
+                    domain=domain,
+                    canonical_url=item.canonical_url,
+                    excerpt=item.excerpt,
+                    publication_date=item.publication_date,
+                    author=item.author,
+                    extraction_method=item.method,
+                    language_confidence=item.confidence,
+                    word_count=len(item.body.split()),
+                )):
+                    new_articles = 1
+        elif self.store.count("comments") < self.config.maximum_comments:
             for item in page.comments:
                 if self.store.count("comments") >= self.config.maximum_comments:
                     break
@@ -474,10 +496,13 @@ class CrawlEngine:
             discovered_rows.append((safe, source, self._priority_for_url(safe, priority)))
         for offset in range(0, len(discovered_rows), URL_INSERT_BATCH_SIZE):
             self.store.upsert_urls(discovered_rows[offset : offset + URL_INSERT_BATCH_SIZE])
-        self.store.record_attempt(url, page.method, len(page.comments), True)
+        self.store.record_attempt(url, page.method, len(page.comments) if self.config.content_mode == "comments" else 0, True, articles_found=(1 if self.config.content_mode == "articles" and page.article is not None else 0))
         self.store.complete_url(url)
         self.stats.processed_pages += 1
-        self.stats.pages_with_comments += int(bool(page.comments))
+        if self.config.content_mode == "articles":
+            self.stats.pages_with_articles += int(bool(page.article))
+        else:
+            self.stats.pages_with_comments += int(bool(page.comments))
         with self._domain_stats_lock:
             self._domain_pages[domain] += 1
             self._domain_comment_pages[domain] += int(bool(page.comments))
@@ -493,11 +518,16 @@ class CrawlEngine:
                 self.emit("activity", f"Stopped low-yield domain {domain} after {domain_pages} pages")
         self.stats.discovered_websites = self.store.count("domains")
         self.stats.unique_comments = self.store.count("comments")
+        self.stats.unique_articles = self.store.count("articles")
         self.stats.storage_bytes = self.store.budget.usage()
         self.stats.remaining_storage_bytes = self.store.budget.remaining()
         self.stats.last_activity = utc_now()
         self.emit("stats", asdict(self.stats))
-        self.emit("activity", f"Processed {url} — {new_comments} new Persian comments")
+        if self.config.content_mode == "articles":
+            self.emit("articles", self.store.latest_articles())
+            self.emit("activity", f"Processed {url} — {new_articles} new Persian article")
+        else:
+            self.emit("activity", f"Processed {url} — {new_comments} new Persian comments")
         if self.stats.remaining_storage_bytes <= 0:
             with self._state_lock:
                 self.state = CrawlState.BUDGET_PAUSED

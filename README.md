@@ -1,6 +1,6 @@
 # Persian Comment Crawler
 
-Persian Comment Crawler is a Windows desktop application for collecting publicly accessible Persian-language comments from websites you are allowed to research. It discovers links from explicit seed URLs, same-domain pages, XML sitemaps, RSS, and Atom feeds; detects common comment structures; normalizes and classifies Persian text; stores provenance in SQLite; and exports optional UTF-8 TXT files grouped by domain.
+Persian Comment Crawler is a Windows desktop application for collecting publicly accessible Persian-language comments or articles from websites you are allowed to research. It discovers links from explicit seed URLs, same-domain pages, XML sitemaps, RSS, and Atom feeds; detects common comment and article structures; normalizes and classifies Persian text; stores provenance in SQLite; and exports optional UTF-8 TXT files grouped by domain.
 
 The application starts in Safe Test Mode:
 
@@ -45,6 +45,7 @@ To build a Windows executable after installing PyInstaller:
 - Expands sitemap indexes and child sitemaps without the ordinary 30-link page cap, and keeps every detected app/product/game URL in the queue; large URL batches are committed transactionally for crash-resistant discovery.
 - Uses dynamic per-domain worker lanes: one active URL per host, many different hosts in parallel, and adaptive host pacing. A clean host converges from the two-second starting delay toward 0.5 seconds; timeouts, connection failures, 403/408/425/429 responses, and 5xx responses back off that host exponentially up to eight seconds. There is no global cross-site wait by default, so throughput scales with the number of available websites instead of alphabet buckets.
 - The dashboard exposes live worker lanes, queued URLs, active/failed counts, focused-site progress, storage, and recent activity so a multi-domain run can be watched without guessing from a single counter.
+- The Articles tab runs the same discovery and safety pipeline in article mode, extracting Persian article titles, bodies, canonical URLs, authors, dates, word counts, and source provenance into a separate SQLite table and `Data\Articles` export area.
 - Checks robots.txt, uses a descriptive user agent, applies domain cooldowns, and rejects non-HTTP(S), embedded-credential, private, loopback, link-local, reserved, and multicast targets.
 - Detects semantic comment structures, WordPress-style classes, reviews, replies, and Schema.org JSON-LD comments.
 - Rejects common comment-widget noise such as reply controls, dates, counters, and "first comment" placeholders before saving.

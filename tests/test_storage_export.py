@@ -4,7 +4,8 @@ from pathlib import Path
 
 from persian_comment_crawler.config import CrawlConfig
 from persian_comment_crawler.exporter import TxtExporter
-from persian_comment_crawler.models import CommentRecord
+from persian_comment_crawler.exporter import ArticleTxtExporter
+from persian_comment_crawler.models import ArticleRecord, CommentRecord
 from persian_comment_crawler.storage import SQLiteStore
 
 
@@ -74,4 +75,22 @@ class StorageExportTests(unittest.TestCase):
             self.assertTrue(files)
             self.assertTrue(files[0].read_text(encoding="utf-8").startswith("="))
             self.assertEqual(TxtExporter(store, config).export("example.ir", only_new=True), [])
+            store.close()
+
+    def test_article_deduplication_and_export(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = CrawlConfig(data_root=Path(directory) / "data", minimum_free_disk_bytes=0, export_rotation_bytes=300)
+            store = SQLiteStore(config.data_root, config)
+            record = ArticleRecord(
+                title="گزارش آزمایشی",
+                body="این متن مقاله برای آزمون ذخیره‌سازی و خروجی گرفتن نوشته شده است.",
+                source_url="https://example.ir/news/1",
+                domain="example.ir",
+            )
+            self.assertTrue(store.save_article(record))
+            self.assertFalse(store.save_article(record))
+            files = ArticleTxtExporter(store, config).export("example.ir")
+            self.assertTrue(files)
+            self.assertIn("گزارش آزمایشی", files[0].read_text(encoding="utf-8"))
+            self.assertEqual(ArticleTxtExporter(store, config).export("example.ir", only_new=True), [])
             store.close()

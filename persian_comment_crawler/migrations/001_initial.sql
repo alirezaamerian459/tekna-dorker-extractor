@@ -36,6 +36,23 @@ CREATE TABLE IF NOT EXISTS comments (
   source_context TEXT
 );
 
+CREATE TABLE IF NOT EXISTS articles (
+  record_id TEXT PRIMARY KEY,
+  canonical_url TEXT,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  excerpt TEXT,
+  domain TEXT NOT NULL,
+  source_url TEXT NOT NULL,
+  publication_date TEXT,
+  author TEXT,
+  discovered_at TEXT NOT NULL,
+  extraction_method TEXT NOT NULL,
+  language_confidence REAL NOT NULL,
+  word_count INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(domain, source_url)
+);
+
 CREATE TABLE IF NOT EXISTS exported_records (
   record_id TEXT PRIMARY KEY,
   exported_at TEXT NOT NULL,

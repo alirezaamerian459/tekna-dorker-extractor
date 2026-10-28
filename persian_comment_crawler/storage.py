@@ -13,7 +13,7 @@ from typing import Callable, Iterable, Iterator
 from urllib.parse import urlsplit
 
 from .config import CrawlConfig
-from .models import CommentRecord, CrawlState, utc_now
+from .models import ArticleRecord, CommentRecord, CrawlState, utc_now
 
 
 SCHEMA = """
@@ -44,9 +44,20 @@ CREATE TABLE IF NOT EXISTS comments (
   UNIQUE(domain, source_url, normalized_text, source_context)
 );
 CREATE INDEX IF NOT EXISTS idx_comments_domain ON comments(domain);
+CREATE TABLE IF NOT EXISTS articles (
+  record_id TEXT PRIMARY KEY, canonical_url TEXT, title TEXT NOT NULL,
+  body TEXT NOT NULL, excerpt TEXT, domain TEXT NOT NULL, source_url TEXT NOT NULL,
+  publication_date TEXT, author TEXT, discovered_at TEXT NOT NULL,
+  extraction_method TEXT NOT NULL, language_confidence REAL NOT NULL,
+  word_count INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(domain, source_url)
+);
+CREATE INDEX IF NOT EXISTS idx_articles_domain ON articles(domain);
+CREATE INDEX IF NOT EXISTS idx_articles_discovered ON articles(discovered_at);
 CREATE TABLE IF NOT EXISTS extraction_attempts (
   id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL, attempted_at TEXT NOT NULL,
   method TEXT NOT NULL, comments_found INTEGER NOT NULL DEFAULT 0,
+  articles_found INTEGER NOT NULL DEFAULT 0,
   success INTEGER NOT NULL DEFAULT 0, error TEXT
 );
 CREATE TABLE IF NOT EXISTS exports (
@@ -54,6 +65,13 @@ CREATE TABLE IF NOT EXISTS exports (
   output_path TEXT NOT NULL, comment_count INTEGER NOT NULL, bytes_written INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS exported_records (
+  record_id TEXT PRIMARY KEY, exported_at TEXT NOT NULL, output_path TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS article_exports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, exported_at TEXT NOT NULL, domain TEXT,
+  output_path TEXT NOT NULL, article_count INTEGER NOT NULL, bytes_written INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS exported_articles (
   record_id TEXT PRIMARY KEY, exported_at TEXT NOT NULL, output_path TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS storage_accounting (
@@ -114,11 +132,12 @@ class SQLiteStore:
     def __init__(self, data_root: Path, config: CrawlConfig) -> None:
         self.data_root = data_root
         self.comments_dir = data_root / "Data" / "Comments"
+        self.articles_dir = data_root / "Data" / "Articles"
         self.database_dir = data_root / "Data" / "Database"
         self.logs_dir = data_root / "Data" / "Logs"
         self.checkpoints_dir = data_root / "Data" / "Checkpoints"
         self.temp_dir = data_root / "Data" / "Temp"
-        for path in (self.comments_dir, self.database_dir, self.logs_dir, self.checkpoints_dir, self.temp_dir):
+        for path in (self.comments_dir, self.articles_dir, self.database_dir, self.logs_dir, self.checkpoints_dir, self.temp_dir):
             path.mkdir(parents=True, exist_ok=True)
         self.db_path = self.database_dir / "crawler.db"
         self.budget = StorageBudget(data_root, config.storage_limit_bytes, config.minimum_free_disk_bytes)
@@ -126,6 +145,11 @@ class SQLiteStore:
         self._connection.row_factory = sqlite3.Row
         self._lock = threading.RLock()
         self._connection.executescript(SCHEMA)
+        try:
+            self._connection.execute("ALTER TABLE extraction_attempts ADD COLUMN articles_found INTEGER NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            # Existing databases already have the column.
+            pass
         self._connection.commit()
         self.session_id: int | None = None
 
@@ -304,9 +328,26 @@ class SQLiteStore:
                 db.execute("UPDATE domains SET comment_count=comment_count+1 WHERE domain=?", (record.domain,))
             return bool(cur.rowcount)
 
-    def record_attempt(self, url: str, method: str, comments_found: int, success: bool, error: str | None = None) -> None:
+    def save_article(self, record: ArticleRecord) -> bool:
+        """Persist one article while keeping the source URL idempotent."""
+        normalized_title = " ".join(record.title.split())
+        canonical = record.canonical_url or record.source_url
+        record_id = record.record_id or hashlib.sha256(
+            "|".join((record.domain, canonical, normalized_title)).encode("utf-8")
+        ).hexdigest()
         with self.transaction() as db:
-            db.execute("INSERT INTO extraction_attempts(url,attempted_at,method,comments_found,success,error) VALUES(?,?,?,?,?,?)", (url, utc_now(), method, comments_found, int(success), error))
+            cur = db.execute(
+                """INSERT OR IGNORE INTO articles(record_id,canonical_url,title,body,excerpt,domain,source_url,publication_date,author,discovered_at,extraction_method,language_confidence,word_count)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (record_id, canonical, normalized_title, record.body, record.excerpt, record.domain, record.source_url,
+                 record.publication_date, record.author, record.discovered_at, record.extraction_method,
+                 record.language_confidence, record.word_count or len(record.body.split())),
+            )
+            return bool(cur.rowcount)
+
+    def record_attempt(self, url: str, method: str, comments_found: int, success: bool, error: str | None = None, articles_found: int = 0) -> None:
+        with self.transaction() as db:
+            db.execute("INSERT INTO extraction_attempts(url,attempted_at,method,comments_found,articles_found,success,error) VALUES(?,?,?,?,?,?,?)", (url, utc_now(), method, comments_found, articles_found, int(success), error))
 
     def log(self, level: str, component: str, message: str) -> None:
         with self.transaction() as db:
@@ -335,7 +376,7 @@ class SQLiteStore:
         return path
 
     def count(self, table: str) -> int:
-        allowed = {"domains", "discovered_urls", "comments", "extraction_attempts", "error_logs"}
+        allowed = {"domains", "discovered_urls", "comments", "articles", "extraction_attempts", "error_logs"}
         if table not in allowed:
             raise ValueError("unsupported count table")
         with self._lock:
@@ -348,6 +389,8 @@ class SQLiteStore:
                 "discovered_websites": int(self._connection.execute("SELECT COUNT(*) FROM domains").fetchone()[0]),
                 "visited_pages": int(self._connection.execute("SELECT COUNT(*) FROM discovered_urls WHERE visited_at IS NOT NULL").fetchone()[0]),
                 "unique_comments": int(self._connection.execute("SELECT COUNT(*) FROM comments").fetchone()[0]),
+                "unique_articles": int(self._connection.execute("SELECT COUNT(*) FROM articles").fetchone()[0]),
+                "pages_with_articles": int(self._connection.execute("SELECT COUNT(*) FROM extraction_attempts WHERE articles_found > 0").fetchone()[0]),
                 "errors": int(self._connection.execute("SELECT COUNT(*) FROM discovered_urls WHERE status='error'").fetchone()[0]),
                 "pending_urls": int(self._connection.execute("SELECT COUNT(*) FROM discovered_urls WHERE status='pending'").fetchone()[0]),
                 "active_urls": int(self._connection.execute("SELECT COUNT(*) FROM discovered_urls WHERE status='active'").fetchone()[0]),
@@ -385,6 +428,9 @@ class SQLiteStore:
                 comments = int(self._connection.execute(
                     "SELECT COUNT(*) FROM comments WHERE domain=? OR domain LIKE ?", (root, pattern)
                 ).fetchone()[0])
+                articles = int(self._connection.execute(
+                    "SELECT COUNT(*) FROM articles WHERE domain=? OR domain LIKE ?", (root, pattern)
+                ).fetchone()[0])
                 result.append({
                     "domain": root,
                     "pending": counts.get("pending", 0),
@@ -392,6 +438,7 @@ class SQLiteStore:
                     "done": counts.get("done", 0),
                     "errors": counts.get("error", 0),
                     "comments": comments,
+                    "articles": articles,
                 })
         return result
 
@@ -401,6 +448,24 @@ class SQLiteStore:
                 return list(self._connection.execute("SELECT * FROM comments WHERE domain=? ORDER BY discovered_at", (domain,)))
             return list(self._connection.execute("SELECT * FROM comments ORDER BY discovered_at"))
 
+    def articles_for_domain(self, domain: str | None = None) -> list[sqlite3.Row]:
+        with self._lock:
+            if domain:
+                return list(self._connection.execute("SELECT * FROM articles WHERE domain=? ORDER BY discovered_at", (domain,)))
+            return list(self._connection.execute("SELECT * FROM articles ORDER BY discovered_at"))
+
+    def latest_articles(self, limit: int = 20) -> list[dict[str, object]]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT record_id,title,domain,source_url,publication_date,author,word_count,excerpt FROM articles ORDER BY discovered_at DESC LIMIT ?",
+                (max(1, min(int(limit), 100)),),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
     def was_exported(self, record_id: str) -> bool:
         with self._lock:
             return self._connection.execute("SELECT 1 FROM exported_records WHERE record_id=?", (record_id,)).fetchone() is not None
+
+    def was_article_exported(self, record_id: str) -> bool:
+        with self._lock:
+            return self._connection.execute("SELECT 1 FROM exported_articles WHERE record_id=?", (record_id,)).fetchone() is not None
