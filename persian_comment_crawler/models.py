@@ -47,6 +47,10 @@ class ArticleRecord:
     extraction_method: str = "article-html"
     language_confidence: float = 0.0
     word_count: int = 0
+    category: str = "other"
+    categories: tuple[str, ...] = ()
+    category_confidence: float = 0.0
+    quality_score: float = 0.0
     discovered_at: str = field(default_factory=utc_now)
     record_id: str | None = None
 

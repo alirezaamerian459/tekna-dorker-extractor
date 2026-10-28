@@ -8,6 +8,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
+from .categorizer import ARTICLE_CATEGORIES
 from .config import CrawlConfig, default_data_root
 from .engine import CrawlEngine
 from .exporter import ArticleTxtExporter, TxtExporter
@@ -27,6 +28,7 @@ class CrawlerApp(tk.Tk):
         self.engine: CrawlEngine | None = None
         self.config_model = CrawlConfig()
         self._build_styles()
+        self._article_rows: list[dict[str, object]] = []
         self._build_ui()
         self._load_existing_stats()
         self.after(300, self._drain_events)
@@ -215,8 +217,18 @@ class CrawlerApp(tk.Tk):
         self.article_state.pack(side="right")
         self.article_summary = ttk.Label(results, text="No article run has started yet.", style="Muted.TLabel")
         self.article_summary.pack(anchor="w", pady=(4, 8))
-        self.article_tree = ttk.Treeview(results, columns=("title", "domain", "published", "words", "url"), show="headings")
-        for column, heading, width in (("title", "Title", 390), ("domain", "Website", 145), ("published", "Published", 120), ("words", "Words", 70), ("url", "Source URL", 390)):
+        filter_row = ttk.Frame(results, style="Card.TFrame")
+        filter_row.pack(fill="x", pady=(0, 8))
+        ttk.Label(filter_row, text="Category", style="Muted.TLabel").pack(side="left", padx=(0, 7))
+        self.article_category_var = tk.StringVar(value="All categories")
+        category_values = ["All categories", *ARTICLE_CATEGORIES]
+        category_picker = ttk.Combobox(filter_row, textvariable=self.article_category_var, values=category_values, state="readonly", width=18)
+        category_picker.pack(side="left")
+        category_picker.bind("<<ComboboxSelected>>", lambda _event: self._refresh_article_view())
+        self.article_category_summary = ttk.Label(filter_row, text="", style="Muted.TLabel")
+        self.article_category_summary.pack(side="right")
+        self.article_tree = ttk.Treeview(results, columns=("title", "category", "domain", "published", "words", "url"), show="headings")
+        for column, heading, width in (("title", "Title", 340), ("category", "Category", 105), ("domain", "Website", 135), ("published", "Published", 115), ("words", "Words", 65), ("url", "Source URL", 355)):
             self.article_tree.heading(column, text=heading)
             self.article_tree.column(column, width=width, stretch=column in {"title", "url"})
         self.article_tree.pack(fill="both", expand=True)
@@ -262,13 +274,27 @@ class CrawlerApp(tk.Tk):
     def _render_articles(self, payload: object) -> None:
         if not hasattr(self, "article_tree") or not isinstance(payload, list):
             return
+        self._article_rows = [item for item in payload if isinstance(item, dict)]
+        self._refresh_article_view()
+
+    def _refresh_article_view(self) -> None:
+        if not hasattr(self, "article_tree"):
+            return
         self.article_tree.delete(*self.article_tree.get_children())
-        for item in payload:
-            if isinstance(item, dict):
-                self.article_tree.insert("", "end", values=(
-                    item.get("title", ""), item.get("domain", ""), item.get("publication_date", "") or "unknown",
-                    item.get("word_count", 0), item.get("source_url", ""),
-                ))
+        selected = self.article_category_var.get() if hasattr(self, "article_category_var") else "All categories"
+        for item in self._article_rows:
+            if selected != "All categories" and item.get("category", "other") != selected:
+                continue
+            self.article_tree.insert("", "end", values=(
+                item.get("title", ""), item.get("category", "other"), item.get("domain", ""),
+                item.get("publication_date", "") or "unknown", item.get("word_count", 0), item.get("source_url", ""),
+            ))
+
+    def _render_article_categories(self, payload: object) -> None:
+        if not hasattr(self, "article_category_summary") or not isinstance(payload, dict):
+            return
+        ordered = sorted(((str(key), int(value)) for key, value in payload.items()), key=lambda item: (-item[1], item[0]))
+        self.article_category_summary.configure(text="  ·  ".join(f"{key}: {value:,}" for key, value in ordered[:5]))
 
     def _on_tab_changed(self, _event=None) -> None:
         if hasattr(self, "article_state"):
@@ -348,9 +374,11 @@ class CrawlerApp(tk.Tk):
             store = SQLiteStore(self.config_model.data_root, self.config_model)
             counts = store.dashboard_counts()
             articles = store.latest_articles()
+            article_categories = store.article_category_counts()
             store.close()
             self.events.put(("stats", counts))
             self.events.put(("articles", articles))
+            self.events.put(("article_categories", article_categories))
         except Exception:
             # A first-run directory has no persisted data yet.
             return
@@ -382,6 +410,8 @@ class CrawlerApp(tk.Tk):
                 self._render_queue(payload)
             elif event == "articles":
                 self._render_articles(payload)
+            elif event == "article_categories":
+                self._render_article_categories(payload)
             elif event == "activity":
                 self.activity.insert("", "end", values=("now", str(payload)))
                 children = self.activity.get_children()

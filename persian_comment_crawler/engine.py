@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 from urllib.robotparser import RobotFileParser
 
 from .config import CrawlConfig
+from .categorizer import classify_article
 from .discovery import FOCUSED_DOMAINS, FOCUSED_ENTRYPOINTS, BingSearchProvider, CommonCrawlProvider, TrancoProvider, default_search_queries, discovery_candidates, is_catalog_url, is_sitemap_page, link_priority
 from .extractor import extract_page
 from .fetcher import UrlFetcher
@@ -338,6 +339,7 @@ class CrawlEngine:
         })
         if self.config.content_mode == "articles":
             self.emit("articles", self.store.latest_articles())
+            self.emit("article_categories", self.store.article_category_counts())
 
     def _run(self) -> None:
         self._executor = ThreadPoolExecutor(max_workers=self.config.concurrency, thread_name_prefix="crawler-worker")
@@ -462,6 +464,7 @@ class CrawlEngine:
         if self.config.content_mode == "articles":
             if page.article is not None and self.store.count("articles") < self.config.maximum_articles:
                 item = page.article
+                classification = classify_article(item.title, item.body, url)
                 if self.store.save_article(ArticleRecord(
                     title=item.title,
                     body=item.body,
@@ -474,6 +477,10 @@ class CrawlEngine:
                     extraction_method=item.method,
                     language_confidence=item.confidence,
                     word_count=len(item.body.split()),
+                    category=classification.primary_category,
+                    categories=classification.categories,
+                    category_confidence=classification.confidence,
+                    quality_score=classification.quality_score,
                 )):
                     new_articles = 1
         elif self.store.count("comments") < self.config.maximum_comments:
@@ -525,6 +532,7 @@ class CrawlEngine:
         self.emit("stats", asdict(self.stats))
         if self.config.content_mode == "articles":
             self.emit("articles", self.store.latest_articles())
+            self.emit("article_categories", self.store.article_category_counts())
             self.emit("activity", f"Processed {url} — {new_articles} new Persian article")
         else:
             self.emit("activity", f"Processed {url} — {new_comments} new Persian comments")

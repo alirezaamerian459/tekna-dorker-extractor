@@ -50,6 +50,10 @@ CREATE TABLE IF NOT EXISTS articles (
   extraction_method TEXT NOT NULL,
   language_confidence REAL NOT NULL,
   word_count INTEGER NOT NULL DEFAULT 0,
+  category TEXT NOT NULL DEFAULT 'other',
+  categories_json TEXT NOT NULL DEFAULT '[]',
+  category_confidence REAL NOT NULL DEFAULT 0,
+  quality_score REAL NOT NULL DEFAULT 0,
   UNIQUE(domain, source_url)
 );
 

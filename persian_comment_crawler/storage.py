@@ -49,7 +49,9 @@ CREATE TABLE IF NOT EXISTS articles (
   body TEXT NOT NULL, excerpt TEXT, domain TEXT NOT NULL, source_url TEXT NOT NULL,
   publication_date TEXT, author TEXT, discovered_at TEXT NOT NULL,
   extraction_method TEXT NOT NULL, language_confidence REAL NOT NULL,
-  word_count INTEGER NOT NULL DEFAULT 0,
+  word_count INTEGER NOT NULL DEFAULT 0, category TEXT NOT NULL DEFAULT 'other',
+  categories_json TEXT NOT NULL DEFAULT '[]', category_confidence REAL NOT NULL DEFAULT 0,
+  quality_score REAL NOT NULL DEFAULT 0,
   UNIQUE(domain, source_url)
 );
 CREATE INDEX IF NOT EXISTS idx_articles_domain ON articles(domain);
@@ -150,6 +152,16 @@ class SQLiteStore:
         except sqlite3.OperationalError:
             # Existing databases already have the column.
             pass
+        for column, definition in (
+            ("category", "TEXT NOT NULL DEFAULT 'other'"),
+            ("categories_json", "TEXT NOT NULL DEFAULT '[]'"),
+            ("category_confidence", "REAL NOT NULL DEFAULT 0"),
+            ("quality_score", "REAL NOT NULL DEFAULT 0"),
+        ):
+            try:
+                self._connection.execute(f"ALTER TABLE articles ADD COLUMN {column} {definition}")
+            except sqlite3.OperationalError:
+                pass
         self._connection.commit()
         self.session_id: int | None = None
 
@@ -337,11 +349,13 @@ class SQLiteStore:
         ).hexdigest()
         with self.transaction() as db:
             cur = db.execute(
-                """INSERT OR IGNORE INTO articles(record_id,canonical_url,title,body,excerpt,domain,source_url,publication_date,author,discovered_at,extraction_method,language_confidence,word_count)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                """INSERT OR IGNORE INTO articles(record_id,canonical_url,title,body,excerpt,domain,source_url,publication_date,author,discovered_at,extraction_method,language_confidence,word_count,category,categories_json,category_confidence,quality_score)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (record_id, canonical, normalized_title, record.body, record.excerpt, record.domain, record.source_url,
                  record.publication_date, record.author, record.discovered_at, record.extraction_method,
-                 record.language_confidence, record.word_count or len(record.body.split())),
+                 record.language_confidence, record.word_count or len(record.body.split()), record.category,
+                 json.dumps(record.categories or (record.category,), ensure_ascii=False), record.category_confidence,
+                 record.quality_score),
             )
             return bool(cur.rowcount)
 
@@ -457,10 +471,16 @@ class SQLiteStore:
     def latest_articles(self, limit: int = 20) -> list[dict[str, object]]:
         with self._lock:
             rows = self._connection.execute(
-                "SELECT record_id,title,domain,source_url,publication_date,author,word_count,excerpt FROM articles ORDER BY discovered_at DESC LIMIT ?",
+                "SELECT record_id,title,domain,source_url,publication_date,author,word_count,excerpt,category,category_confidence,quality_score FROM articles ORDER BY discovered_at DESC LIMIT ?",
                 (max(1, min(int(limit), 100)),),
             ).fetchall()
             return [dict(row) for row in rows]
+
+    def article_category_counts(self) -> dict[str, int]:
+        with self._lock:
+            return {str(row["category"]): int(row["count"]) for row in self._connection.execute(
+                "SELECT category,COUNT(*) AS count FROM articles GROUP BY category ORDER BY count DESC"
+            )}
 
     def was_exported(self, record_id: str) -> bool:
         with self._lock:
