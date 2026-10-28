@@ -27,6 +27,33 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class EngineControlTests(unittest.TestCase):
+    def test_article_mode_uses_editorial_priority_profile(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            config = CrawlConfig(data_root=Path(directory) / "data", auto_ir_discovery=True, minimum_free_disk_bytes=0, content_mode="articles")
+            store = SQLiteStore(config.data_root, config)
+            engine = CrawlEngine(config, store)
+            engine.tranco_provider.priority_for_url = lambda _url, fallback: min(fallback, 15)  # type: ignore[method-assign]
+            editorial = engine._priority_for_url("https://example.ir/news/123", 50)
+            catalog = engine._priority_for_url("https://cafebazaar.ir/app/com.example", 50)
+            self.assertLess(editorial, catalog)
+            store.close()
+
+    def test_article_mode_filters_non_editorial_sitemap_fanout(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            config = CrawlConfig(data_root=Path(directory) / "data", auto_ir_discovery=False, minimum_free_disk_bytes=0, content_mode="articles")
+            store = SQLiteStore(config.data_root, config)
+            engine = CrawlEngine(config, store)
+            candidates = [
+                ("https://news.example.ir/news/1", "sitemap-or-feed", 20),
+                ("https://news.example.ir/tag/politics", "sitemap-or-feed", 20),
+                ("https://news.example.ir/assets/file.pdf", "sitemap-or-feed", 20),
+            ]
+            selected = engine._select_candidates("https://news.example.ir/sitemap.xml", "text/xml", candidates)
+            self.assertEqual([row[0] for row in selected], ["https://news.example.ir/news/1"])
+            store.close()
+
     def test_article_mode_persists_article_records_instead_of_comments(self):
         import tempfile
         body = "این گزارش فارسی برای آزمون حالت مقاله نوشته شده و اطلاعات مفیدی درباره موضوع ارائه می‌کند. " * 5

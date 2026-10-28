@@ -13,7 +13,7 @@ from urllib.robotparser import RobotFileParser
 
 from .config import CrawlConfig
 from .categorizer import classify_article
-from .discovery import FOCUSED_DOMAINS, FOCUSED_ENTRYPOINTS, BingSearchProvider, CommonCrawlProvider, TrancoProvider, default_search_queries, discovery_candidates, is_catalog_url, is_sitemap_page, link_priority
+from .discovery import ARTICLE_FOCUSED_DOMAINS, ARTICLE_FOCUSED_ENTRYPOINTS, FOCUSED_DOMAINS, FOCUSED_ENTRYPOINTS, BingSearchProvider, CommonCrawlProvider, TrancoProvider, article_link_priority, default_search_queries, discovery_candidates, is_catalog_url, is_sitemap_page, link_priority
 from .extractor import extract_page
 from .fetcher import UrlFetcher
 from .models import ArticleRecord, CommentRecord, CrawlState, CrawlStats, utc_now
@@ -67,6 +67,7 @@ class CrawlEngine:
         self._last_request_started = 0.0
         self._domain_pages: dict[str, int] = defaultdict(int)
         self._domain_comment_pages: dict[str, int] = defaultdict(int)
+        self._domain_article_pages: dict[str, int] = defaultdict(int)
         self._domain_stats_lock = threading.RLock()
         self._state_lock = threading.RLock()
         self._started_at = 0.0
@@ -214,14 +215,15 @@ class CrawlEngine:
                 safe = normalize_url(url)
             except UnsafeUrl:
                 continue
-            self.store.upsert_url(safe, "tranco-popular-ir", 15)
+            self.store.upsert_url(safe, "tranco-popular-ir", self._priority_for_url(safe, 15))
         if self.tranco_provider.last_error:
             self.emit("activity", f"Tranco unavailable: {self.tranco_provider.last_error}")
         else:
             self.emit("activity", f"Tranco returned {len(popular_urls)} popular .ir domains")
 
     def _seed_focused_targets(self) -> None:
-        for raw_url, source, priority in FOCUSED_ENTRYPOINTS:
+        targets = ARTICLE_FOCUSED_ENTRYPOINTS if self.config.content_mode == "articles" else FOCUSED_ENTRYPOINTS
+        for raw_url, source, priority in targets:
             try:
                 url = normalize_url(raw_url)
             except UnsafeUrl:
@@ -231,13 +233,26 @@ class CrawlEngine:
                 self.emit("activity", f"Queued focused target: {url}")
 
     def _priority_for_url(self, url: str, fallback: int) -> int:
-        # Re-score the URL shape first so an old priority-50 backlog cannot
-        # bury comment, app, product, or sitemap pages. Popularity then acts
-        # as a tie-breaker for ordinary pages and unknown domains.
-        structural = link_priority(url, fallback)
+        # Re-score the URL shape first so an old backlog cannot bury the
+        # content type selected by the active tab. Popularity then acts as a
+        # tie-breaker for ordinary pages and unknown domains.
+        structural = article_link_priority(url, fallback) if self.config.content_mode == "articles" else link_priority(url, fallback)
         if structural is None:
             return fallback
+        if self.config.content_mode == "articles":
+            domain = (urlsplit(url).hostname or "").lower().removeprefix("www.")
+            with self._domain_stats_lock:
+                pages = self._domain_pages.get(domain, 0)
+                article_pages = self._domain_article_pages.get(domain, 0)
+            if pages >= 5 and article_pages == 0:
+                structural = max(structural, 65)
+            elif pages >= 5 and article_pages / max(1, pages) >= 0.25:
+                structural = max(0, structural - 5)
         if not self.config.auto_ir_discovery:
+            return structural
+        # Do not let popularity erase an explicit article-mode demotion for
+        # app/product/comment/catalog URLs.
+        if self.config.content_mode == "articles" and structural >= 58:
             return structural
         return self.tranco_provider.priority_for_url(url, structural)
 
@@ -318,7 +333,11 @@ class CrawlEngine:
         expand_all = is_sitemap_page(page_url, content_type)
         for candidate in candidates:
             discovered, source, _priority = candidate
-            if expand_all or source == "sitemap-or-feed" or is_catalog_url(discovered):
+            article_priority = article_link_priority(discovered, 50) if self.config.content_mode == "articles" else None
+            if self.config.content_mode == "articles" and expand_all and (article_priority is None or article_priority > 45):
+                continue
+            article_candidate = self.config.content_mode == "articles" and article_priority is not None and article_priority <= 30
+            if expand_all or source == "sitemap-or-feed" or (is_catalog_url(discovered) and self.config.content_mode != "articles") or article_candidate:
                 selected.append(candidate)
             elif ordinary_count < self.config.max_links_per_page:
                 selected.append(candidate)
@@ -335,7 +354,7 @@ class CrawlEngine:
         self.emit("workers", sorted((dict(worker) for worker in workers), key=lambda item: int(item["lane"])))
         self.emit("queue", {
             **queue_state,
-            "focused": self.store.focused_snapshot(sorted(FOCUSED_DOMAINS)),
+            "focused": self.store.focused_snapshot(sorted(ARTICLE_FOCUSED_DOMAINS if self.config.content_mode == "articles" else FOCUSED_DOMAINS)),
         })
         if self.config.content_mode == "articles":
             self.emit("articles", self.store.latest_articles())
@@ -513,6 +532,7 @@ class CrawlEngine:
         with self._domain_stats_lock:
             self._domain_pages[domain] += 1
             self._domain_comment_pages[domain] += int(bool(page.comments))
+            self._domain_article_pages[domain] += int(bool(page.article))
             domain_pages = self._domain_pages[domain]
             domain_comment_pages = self._domain_comment_pages[domain]
         if self.config.max_pages_per_domain and domain_pages >= self.config.max_pages_per_domain:
@@ -529,6 +549,10 @@ class CrawlEngine:
         self.stats.storage_bytes = self.store.budget.usage()
         self.stats.remaining_storage_bytes = self.store.budget.remaining()
         self.stats.last_activity = utc_now()
+        if self.config.content_mode == "articles" and self.stats.processed_pages % 25 == 0:
+            reprioritized = self.store.reprioritize_pending(self._priority_for_url)
+            if reprioritized:
+                self.emit("activity", f"Re-ranked {reprioritized} queued URL(s) using article yield")
         self.emit("stats", asdict(self.stats))
         if self.config.content_mode == "articles":
             self.emit("articles", self.store.latest_articles())

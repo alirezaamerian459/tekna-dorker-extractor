@@ -17,6 +17,10 @@ HIGH_VALUE_PATH_PARTS = {"article", "articles", "blog", "news", "post", "posts",
 COMMENT_PATH_PARTS = {"comment", "comments", "discussion", "discussions", "feedback", "opinion", "opinions", "review", "reviews", "نظر", "نظرات", "دیدگاه", "دیدگاهها"}
 APP_STORE_DOMAINS = {"cafebazaar.ir", "myket.ir"}
 FOCUSED_DOMAINS = APP_STORE_DOMAINS | {"digikala.com", "torob.com", "soft98.ir", "vgdl.ir"}
+ARTICLE_FOCUSED_DOMAINS = {
+    "khabaronline.ir", "entekhab.ir", "isna.ir", "irna.ir", "mehrnews.com",
+    "tasnimnews.com", "farsnews.ir", "tabnak.ir", "khabarfoori.com", "yjc.ir",
+}
 FOCUSED_ENTRYPOINTS = (
     ("https://www.digikala.com/sitemap.xml", "focused-marketplace-sitemap", 1),
     ("https://cafebazaar.ir/app", "focused-app-store", 2),
@@ -27,8 +31,22 @@ FOCUSED_ENTRYPOINTS = (
     ("https://soft98.ir/", "focused-software", 3),
     ("https://vgdl.ir/", "focused-games", 3),
 )
+ARTICLE_FOCUSED_ENTRYPOINTS = (
+    ("https://www.khabaronline.ir/", "focused-article-news", 2),
+    ("https://www.entekhab.ir/", "focused-article-news", 2),
+    ("https://www.isna.ir/", "focused-article-news", 2),
+    ("https://www.irna.ir/", "focused-article-news", 2),
+    ("https://www.mehrnews.com/", "focused-article-news", 2),
+    ("https://www.tasnimnews.com/", "focused-article-news", 2),
+    ("https://www.farsnews.ir/", "focused-article-news", 2),
+    ("https://www.tabnak.ir/", "focused-article-news", 2),
+    ("https://www.khabarfoori.com/", "focused-article-news", 2),
+    ("https://www.yjc.ir/", "focused-article-news", 2),
+)
 
 CATALOG_PATH_PARTS = {"app", "apps", "application", "applications", "game", "games", "item", "items", "product", "products", "software", "softwares"}
+ARTICLE_PATH_PARTS = {"article", "articles", "blog", "news", "post", "posts", "story", "stories", "report", "reports", "analysis", "editorial", "opinion", "interview", "پرونده", "خبر", "گزارش", "مقاله"}
+ARTICLE_LOW_VALUE_PATH_PARTS = {"amp", "archive", "author", "category", "feed", "login", "page", "register", "search", "tag", "tags", "wp-admin", "wp-json", "comment", "comments", "discussion", "discussions"}
 
 
 class FeedLinkParser(HTMLParser):
@@ -107,6 +125,28 @@ def link_priority(url: str, default: int = 50) -> int | None:
     if segments & HIGH_VALUE_PATH_PARTS:
         return 30
     return default
+
+
+def article_link_priority(url: str, default: int = 50) -> int | None:
+    """Prioritize editorial URLs and demote comment/catalog noise for article runs."""
+    base = link_priority(url, default)
+    if base is None:
+        return None
+    parts = urlsplit(url)
+    path = urllib.parse.unquote(parts.path.lower())
+    hostname = (parts.hostname or "").lower().removeprefix("www.")
+    segments = {segment for segment in path.split("/") if segment}
+    if hostname in ARTICLE_FOCUSED_DOMAINS:
+        base = min(base, 12)
+    if segments & ARTICLE_PATH_PARTS:
+        base = min(base, 8)
+    if segments & ARTICLE_LOW_VALUE_PATH_PARTS:
+        base = max(base, 78)
+    if is_catalog_url(url):
+        base = max(base, 72)
+    if hostname in FOCUSED_DOMAINS and hostname not in ARTICLE_FOCUSED_DOMAINS:
+        base = max(base, 58)
+    return base
 
 
 def extract_html_links(html: str, base_url: str, domain: str | None = None) -> list[str]:

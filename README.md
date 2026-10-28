@@ -47,6 +47,7 @@ To build a Windows executable after installing PyInstaller:
 - The dashboard exposes live worker lanes, queued URLs, active/failed counts, focused-site progress, storage, and recent activity so a multi-domain run can be watched without guessing from a single counter.
 - The Articles tab runs the same discovery and safety pipeline in article mode, extracting Persian article titles, bodies, canonical URLs, authors, dates, word counts, and source provenance into a separate SQLite table and `Data\Articles` export area.
 - Article mode classifies each record locally into multi-label topics such as politics, economy, technology, science, health, sports, culture, society, education, travel, lifestyle, business, religion, opinion, or other; the tab exposes category filters, counts, confidence, and quality scores without an external AI call.
+- Article mode uses a separate scope profile: Iranian news/editorial domains are seeded first, article-shaped paths are boosted, app/product/comment/catalog paths are demoted, and queued priorities are re-ranked every 25 pages using each domain's observed article yield.
 - Checks robots.txt, uses a descriptive user agent, applies domain cooldowns, and rejects non-HTTP(S), embedded-credential, private, loopback, link-local, reserved, and multicast targets.
 - Detects semantic comment structures, WordPress-style classes, reviews, replies, and Schema.org JSON-LD comments.
 - Rejects common comment-widget noise such as reply controls, dates, counters, and "first comment" placeholders before saving.
