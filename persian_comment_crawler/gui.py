@@ -193,6 +193,7 @@ class CrawlerApp(tk.Tk):
         scroll.place(relx=1.0, rely=0, relheight=1.0, anchor="ne")
         self.activity.configure(yscrollcommand=scroll.set)
         self._build_articles_tab()
+        self._refresh_article_data_panel()
 
     def _build_articles_tab(self) -> None:
         """Build the focused article workspace without disturbing comments UI."""
@@ -202,10 +203,20 @@ class CrawlerApp(tk.Tk):
         ttk.Label(hero, text="Article Desk", foreground="#d9f27f", background="#173b3f", font=("Segoe UI", 18, "bold")).pack(anchor="w")
         ttk.Label(hero, text="Collect Persian news and editorial pages with title, body, source, author, and publication metadata.", style="Muted.TLabel", wraplength=980).pack(anchor="w", pady=(4, 0))
 
+        data_panel = ttk.Frame(tab, style="Card.TFrame", padding=(14, 9))
+        data_panel.pack(fill="x", pady=(0, 12))
+        ttk.Label(data_panel, text="Data location", foreground="#d9f27f", background="#173b3f", font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 10))
+        self.article_data_path = tk.StringVar()
+        ttk.Label(data_panel, textvariable=self.article_data_path, style="Muted.TLabel").pack(side="left", fill="x", expand=True)
+        self.article_storage_label = ttk.Label(data_panel, text="Managed data: 0 B", style="Muted.TLabel")
+        self.article_storage_label.pack(side="left", padx=(12, 12))
+        ttk.Button(data_panel, text="Open data folder", command=self._open_folder).pack(side="right")
+        ttk.Button(data_panel, text="Open article exports", command=self._open_articles_folder).pack(side="right", padx=(0, 7))
+
         cards = ttk.Frame(tab)
         cards.pack(fill="x", pady=(0, 12))
         self.article_card_values: dict[str, ttk.Label] = {}
-        for title, key in (("Articles saved", "articles"), ("Pages with articles", "article_pages"), ("Queued pages", "article_queue"), ("Article pages / sec", "article_rate")):
+        for title, key in (("Articles saved", "articles"), ("Pages with articles", "article_pages"), ("Queued pages", "article_queue"), ("Article pages / sec", "article_rate"), ("Managed storage", "storage")):
             card = ttk.Frame(cards, style="Card.TFrame", padding=(15, 12))
             card.pack(side="left", fill="both", expand=True, padx=(0, 8))
             value = ttk.Label(card, text="0", style="CardValue.TLabel")
@@ -304,6 +315,7 @@ class CrawlerApp(tk.Tk):
     def _on_tab_changed(self, _event=None) -> None:
         if hasattr(self, "article_state"):
             self.article_state.configure(text="Article mode ready" if self._active_mode() == "articles" else "Comments mode selected")
+        self._refresh_article_data_panel()
 
     def _active_mode(self) -> str:
         return "articles" if self.notebook.index(self.notebook.select()) == 1 else "comments"
@@ -312,6 +324,28 @@ class CrawlerApp(tk.Tk):
         selected = filedialog.askdirectory(initialdir=self.data_var.get(), title="Choose managed data directory")
         if selected:
             self.data_var.set(selected)
+            self._refresh_article_data_panel()
+
+    @staticmethod
+    def _format_bytes(value: object) -> str:
+        size = max(0.0, float(value or 0))
+        for unit in ("B", "KB", "MB", "GB", "TB"):
+            if size < 1000 or unit == "TB":
+                return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} B"
+            size /= 1000
+        return "0 B"
+
+    def _refresh_article_data_panel(self) -> None:
+        if not hasattr(self, "article_data_path"):
+            return
+        root = Path(self.data_var.get()).expanduser()
+        self.article_data_path.set(f"Managed: {root}  ·  Articles: {root / 'Data' / 'Articles'}")
+
+    def _open_articles_folder(self) -> None:
+        path = Path(self.data_var.get()) / "Data" / "Articles"
+        path.mkdir(parents=True, exist_ok=True)
+        import os
+        os.startfile(path)  # type: ignore[attr-defined]
 
     def _config(self) -> CrawlConfig:
         seeds = [line.strip() for line in self.seed_text.get("1.0", "end").splitlines() if line.strip()]
@@ -409,6 +443,10 @@ class CrawlerApp(tk.Tk):
                     self.article_card_values["article_pages"].configure(text=f"{payload.get('pages_with_articles', 0):,}")
                     self.article_card_values["article_queue"].configure(text=f"{payload.get('pending_urls', 0):,}")
                     self.article_card_values["article_rate"].configure(text=f"{payload.get('current_speed', 0):.1f}")
+                    storage_text = self._format_bytes(payload.get("storage_bytes", 0))
+                    self.article_card_values["storage"].configure(text=storage_text)
+                    if hasattr(self, "article_storage_label"):
+                        self.article_storage_label.configure(text=f"Managed data: {storage_text}")
             elif event == "workers" and isinstance(payload, list):
                 self._render_workers(payload)
             elif event == "queue" and isinstance(payload, dict):
